@@ -92,20 +92,20 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
         const subtitles = [
             {
                 url: `${baseUrl}/sub/status/${id}.vtt`,
-                lang: 'eng',
-                id: 'status',
-                label: 'ℹ️ Status (Show Segments)'
+                lang: 'zxx', // Non-linguistic / Special
+                id: `status_${id}`,
+                label: 'ℹ️ Status (IntroHater)'
             },
             {
                 url: `${baseUrl}/sub/vote/up/${id}.vtt`,
-                lang: 'eng',
-                id: 'up',
+                lang: 'mis', // Miscellaneous
+                id: `vote_up_${id}`,
                 label: '👍 Upvote Skip'
             },
             {
                 url: `${baseUrl}/sub/vote/down/${id}.vtt`,
-                lang: 'eng',
-                id: 'down',
+                lang: 'mis', // Miscellaneous
+                id: `vote_down_${id}`,
                 label: '👎 Downvote Skip'
             }
         ];
