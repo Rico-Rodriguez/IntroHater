@@ -114,6 +114,11 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
             const encodedUrl = encodeURIComponent(stream.url);
             const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`;
 
+            // Debug Log once per request (not per stream to avoid spam, but here we can't easily)
+            if (stream === originalStreams[0]) {
+                console.log(`[Lite] Injecting subtitles examples: ${subtitles[0].url}`);
+            }
+
             return {
                 ...stream,
                 url: proxyUrl,
@@ -134,6 +139,7 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
 
 // Express Server
 const app = express();
+app.set('trust proxy', true); // Trust Render/Heroku proxy for correct protocol (https)
 app.use(cors());
 
 // 1. Serve Website (Docs)
