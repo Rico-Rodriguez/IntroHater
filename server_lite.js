@@ -528,9 +528,8 @@ app.get('/vote/:action/:videoId', (req, res) => {
 
     // Track vote for specific user
     userService.updateUserStats(userId, {
-        votes: 1, // Only increments if logic inside handles it, otherwise sets to 1 (Lite limitation)
-        lastVotedVideo: videoId,
-        lastVoteAction: action
+        votes: 1,
+        videoId: videoId // Explicitly pass videoId as videoId for the list check
     });
 
     if (action === 'down') {

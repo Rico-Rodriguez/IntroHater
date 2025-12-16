@@ -48,8 +48,22 @@ async function updateUserStats(userId, updates) {
 
     // Apply updates - specific handling for votes increment
     if (updates.votes && typeof updates.votes === 'number') {
-        stats.votes = (stats.votes || 0) + updates.votes;
-        delete updates.votes; // Remove from merge to prevent overwriting
+        const videoId = updates.videoId;
+
+        // Initialize votedVideos set if missing
+        if (!stats.votedVideos) stats.votedVideos = [];
+
+        // Only increment if we haven't voted on this video yet
+        if (videoId && !stats.votedVideos.includes(videoId)) {
+            stats.votes = (stats.votes || 0) + updates.votes;
+            stats.votedVideos.push(videoId);
+        } else if (!videoId) {
+            // Fallback for non-video votes (if any)
+            stats.votes = (stats.votes || 0) + updates.votes;
+        }
+
+        delete updates.votes;
+        delete updates.videoId;
     }
 
     Object.assign(stats, updates);
