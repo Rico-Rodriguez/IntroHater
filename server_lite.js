@@ -110,16 +110,16 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
             // 2. Upvote Action (Reloads with Skip)
             modifiedStreams.push({
                 ...stream,
-                name: '', // Keep original name to blend in
-                title: `👍 [Upvote Skip]`,
+                name: 'Upvote and play', // Keep original name to blend in
+                title: `👍`,
                 url: `${baseUrl}/vote/up/${id}?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`
             });
 
             // 3. Downvote Action (Reloads WITHOUT Skip - Fixes playback)
             modifiedStreams.push({
                 ...stream,
-                name: '', // Keep original name
-                title: `🚫 [Disable Skip & Downvote]`,
+                name: 'Downvote and disable skip', // Keep original name
+                title: `🚫`,
                 url: `${baseUrl}/vote/down/${id}?stream=${encodedUrl}`
             });
 
