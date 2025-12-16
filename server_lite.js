@@ -85,27 +85,52 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
         console.log(`[Lite] Found skip for ${id}: ${skipSeg.start}-${skipSeg.end}s`);
     }
 
-    const modifiedStreams = originalStreams.map((stream) => {
-        if (!stream.url) return null;
+    const modifiedStreams = [];
 
+    originalStreams.forEach((stream) => {
+        if (!stream.url) return;
+
+        const encodedUrl = encodeURIComponent(stream.url);
+
+        // 1. Smart Skip Stream (The Main Experience)
         if (skipSeg) {
-            const encodedUrl = encodeURIComponent(stream.url);
-            // Point to Master Playlist which includes subtitles
-            const proxyUrl = `${baseUrl}/hls/master.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}&id=${id}`;
+            // Point to Master Playlist (still good for HLS compliance) 
+            // OR reuse the media playlist directly if we don't use subtitles anymore.
+            // Let's stick to master.m3u8 for future-proofing, but we remove the subtitle params in the master generation if unused.
+            // Actually, let's simplify back to the direct HLS proxy for reliability unless we need the master.
+            const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`;
 
-
-            return {
+            modifiedStreams.push({
                 ...stream,
                 url: proxyUrl,
                 title: `⏭️ [Smart Skip] ${stream.title || stream.name}`,
                 behaviorHints: { notWebReady: false }
-            };
+            });
+
+            // 2. Upvote Action (Reloads with Skip)
+            modifiedStreams.push({
+                ...stream,
+                name: "IntroHater",
+                title: `🌟 [Upvote Skip] (Show Thanks)`,
+                url: `${baseUrl}/vote/up/${id}?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`
+            });
+
+            // 3. Downvote Action (Reloads WITHOUT Skip - Fixes playback)
+            modifiedStreams.push({
+                ...stream,
+                name: "IntroHater",
+                title: `🚫 [Disable & Downvote] (Fix Playback)`,
+                url: `${baseUrl}/vote/down/${id}?stream=${encodedUrl}`
+            });
+
         } else {
-            return stream;
+            // No skip found - just pass through or maybe offer "Create"? 
+            // For Lite, we just pass through.
+            modifiedStreams.push(stream);
         }
     });
 
-    return { streams: modifiedStreams.filter(Boolean) };
+    return { streams: modifiedStreams };
 }
 
 // Express Server
@@ -306,7 +331,9 @@ ${vttUrl}
 
 // HLS Media Playlist Endpoint (Formerly manifest.m3u8)
 // Returns the spliced video segments
-app.get('/hls/media.m3u8', async (req, res) => {
+// HLS Media Playlist Endpoint (Formerly manifest.m3u8)
+// Returns the spliced video segments
+app.get('/hls/manifest.m3u8', async (req, res) => {
     const { stream, start: startStr, end: endStr } = req.query;
 
     if (!stream) {
@@ -418,23 +445,29 @@ app.get('/sub/status/:videoId.vtt', (req, res) => {
 });
 
 // Voting Tracks: Side-effect endpoints
-app.get('/sub/vote/:action/:videoId.vtt', (req, res) => {
+// Voting Actions Redirects
+app.get('/vote/:action/:videoId', (req, res) => {
     const { action, videoId } = req.params;
+    const { stream, start, end } = req.query; // stream is encoded URL
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
 
-    console.log(`[MagicVote] User voted ${action.toUpperCase()} on ${videoId}`);
+    console.log(`[Vote] User voted ${action.toUpperCase()} on ${videoId}`);
+    // TODO: userService.vote(videoId, action);
 
-    // In a real app, we would call userService.vote() here.
-    // For Lite, we just log it to console as requested.
-
-    const vtt = `WEBVTT
-
-00:00:00.000 --> 01:00:00.000
-✅ Vote Registered: ${action.toUpperCase()}!
-(Switch back to 'Status' or 'Turn Off' to resume normal playback)
-`;
-
-    res.set('Content-Type', 'text/vtt');
-    res.send(vtt);
+    if (action === 'down') {
+        // Downvote -> Redirect to ORIGINAL stream (No skipping)
+        // We decode it because Stremio needs the real URL now
+        const originalUrl = decodeURIComponent(stream);
+        console.log(`[Vote] Redirecting to original: ${originalUrl}`);
+        res.redirect(originalUrl);
+    } else {
+        // Upvote -> Redirect to SKIPPING stream
+        const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${stream}&start=${start}&end=${end}`;
+        console.log(`[Vote] Redirecting to skip: ${proxyUrl}`);
+        res.redirect(proxyUrl);
+    }
 });
 
 // Serve Addon
