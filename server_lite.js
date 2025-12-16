@@ -87,7 +87,10 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
 
     if (originalStreams.length === 0) return { streams: [] };
 
-    const skipSeg = getSkipSegment(id);
+    if (originalStreams.length === 0) return { streams: [] };
+
+    // FETCH SKIP (Async now because of Aniskip)
+    const skipSeg = await getSkipSegment(id);
     if (skipSeg) {
         console.log(`[Lite] Found skip for ${id}: ${skipSeg.start}-${skipSeg.end}s`);
     }
