@@ -25,6 +25,13 @@ if (process.platform === 'win32') {
     ffmpeg.setFfprobePath('ffprobe');
 }
 
+// Helper: Format Seconds to VTT Time (HH:MM:SS.mmm)
+function toVTTTime(seconds) {
+    const date = new Date(0);
+    date.setMilliseconds(seconds * 1000);
+    return date.toISOString().substr(11, 12);
+}
+
 // Configuration
 const PORT = process.env.PORT || 7005;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://127.0.0.1:${PORT}`;
@@ -81,6 +88,28 @@ async function handleStreamRequest(type, id, rdKey) {
     const modifiedStreams = originalStreams.map((stream) => {
         if (!stream.url) return null;
 
+        // Magic Subtitles Injection
+        const subtitles = [
+            {
+                url: `${PUBLIC_URL}/sub/status/${id}.vtt`,
+                lang: 'eng',
+                id: 'status',
+                label: 'ℹ️ Status (Show Segments)'
+            },
+            {
+                url: `${PUBLIC_URL}/sub/vote/up/${id}.vtt`,
+                lang: 'eng',
+                id: 'up',
+                label: '👍 Upvote Skip'
+            },
+            {
+                url: `${PUBLIC_URL}/sub/vote/down/${id}.vtt`,
+                lang: 'eng',
+                id: 'down',
+                label: '👎 Downvote Skip'
+            }
+        ];
+
         if (skipSeg) {
             const encodedUrl = encodeURIComponent(stream.url);
             const proxyUrl = `${PUBLIC_URL}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`;
@@ -89,10 +118,14 @@ async function handleStreamRequest(type, id, rdKey) {
                 ...stream,
                 url: proxyUrl,
                 title: `⏭️ [Smart Skip] ${stream.title || stream.name}`,
+                subtitles: subtitles,
                 behaviorHints: { notWebReady: false }
             };
         } else {
-            return stream;
+            return {
+                ...stream,
+                subtitles: subtitles
+            };
         }
     });
 
@@ -316,6 +349,51 @@ app.get('/hls/manifest.m3u8', async (req, res) => {
         console.log("Fallback: Redirecting to original stream (Error-based redirect)");
         res.redirect(req.query.stream);
     }
+});
+
+// 6. Magic Subtitles Endpoints
+
+// Status Track: Shows "Skipping Intro..." at correct times
+app.get('/sub/status/:videoId.vtt', (req, res) => {
+    const vid = req.params.videoId;
+    // We use getSegments from skip-service which returns all segments for this ID
+    const segments = getSegments(vid) || [];
+
+    let vtt = "WEBVTT\n\n";
+
+    if (segments.length === 0) {
+        vtt += `00:00:00.000 --> 00:00:05.000\nNo skip segments found.\n\n`;
+    } else {
+        segments.forEach(seg => {
+            const start = toVTTTime(seg.start);
+            const end = toVTTTime(seg.end);
+            const label = seg.category || 'Intro';
+            vtt += `${start} --> ${end}\n[${label}] ⏭️ Skipping...\n\n`;
+        });
+    }
+
+    res.set('Content-Type', 'text/vtt');
+    res.send(vtt);
+});
+
+// Voting Tracks: Side-effect endpoints
+app.get('/sub/vote/:action/:videoId.vtt', (req, res) => {
+    const { action, videoId } = req.params;
+
+    console.log(`[MagicVote] User voted ${action.toUpperCase()} on ${videoId}`);
+
+    // In a real app, we would call userService.vote() here.
+    // For Lite, we just log it to console as requested.
+
+    const vtt = `WEBVTT
+
+00:00:00.000 --> 01:00:00.000
+✅ Vote Registered: ${action.toUpperCase()}!
+(Switch back to 'Status' or 'Turn Off' to resume normal playback)
+`;
+
+    res.set('Content-Type', 'text/vtt');
+    res.send(vtt);
 });
 
 // Serve Addon
