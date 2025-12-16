@@ -250,6 +250,30 @@ app.get('/api/catalog', async (req, res) => {
 
     const omdbKey = process.env.OMDB_API_KEY;
 
+
+
+    // 1. Collect Missing IDs
+    const missingIds = new Set();
+    for (const key of Object.keys(allSkips)) {
+        const imdbId = key.split(':')[0];
+        if (!global.metadataCache[imdbId]) {
+            missingIds.add(imdbId);
+        }
+    }
+
+    // 2. Fetch Missing Metadata (Parallel)
+    if (missingIds.size > 0 && omdbKey) {
+        console.log(`[Catalog] Fetching metadata for ${missingIds.size} items...`);
+        const promises = Array.from(missingIds).map(id => fetchOMDbData(id, omdbKey));
+        const results = await Promise.all(promises);
+        results.forEach(data => {
+            if (data && data.imdbID) {
+                global.metadataCache[data.imdbID] = data;
+            }
+        });
+    }
+
+    // 3. Build Catalog (Now with populated cache)
     for (const [key, segments] of Object.entries(allSkips)) {
         const parts = key.split(':');
         const imdbId = parts[0];
@@ -257,18 +281,6 @@ app.get('/api/catalog', async (req, res) => {
         const episode = parts[2] ? parseInt(parts[2]) : null;
 
         let meta = global.metadataCache[imdbId];
-
-        // Fetch metadata if missing and key exists
-        if (!meta && omdbKey) {
-            try {
-                // We don't await here to avoid blocking the response (lazy load)
-                fetchOMDbData(imdbId, omdbKey).then(data => {
-                    if (data) global.metadataCache[imdbId] = data;
-                });
-            } catch (e) {
-                console.error(`OMDB Fetch Error for ${imdbId}:`, e.message);
-            }
-        }
 
         if (!catalog.media[imdbId]) {
             catalog.media[imdbId] = {
