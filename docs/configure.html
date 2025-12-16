@@ -58,8 +58,20 @@
                             </p>
                         </div>
 
-                        <div style="margin-top: 30px;">
-                            <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">
+                        <!-- Stats Panel -->
+                        <div id="stats-panel" class="d-none"
+                            style="margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 8px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="font-size: 0.9rem;">🪙 Your Rank: <strong id="userRank">-</strong></span>
+                                <span style="font-size: 0.9rem;">🗳️ Votes: <strong id="userVotes">0</strong></span>
+                            </div>
+                        </div>
+
+                        <div style="margin-top: 20px; display: flex; gap: 10px;">
+                            <button type="button" id="checkStatsBtn" class="btn btn-secondary" style="flex: 1;">
+                                Check Stats
+                            </button>
+                            <button type="submit" class="btn btn-primary" style="flex: 1; justify-content: center;">
                                 Generate Link
                             </button>
                         </div>
@@ -127,6 +139,41 @@
             document.getElementById('result-section').style.display = 'block';
 
             // Hide generate button to reduce clutter? Or keep it.
+        };
+
+        // Check Stats Logic
+        document.getElementById('checkStatsBtn').onclick = async function () {
+            const key = document.getElementById('rdKey').value.trim();
+            if (!key) {
+                alert("Please enter your RD Key first!");
+                return;
+            }
+
+            const btn = this;
+            const originalText = btn.textContent;
+            btn.textContent = "Loading...";
+
+            try {
+                const res = await fetch('/api/stats/personal', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ rdKey: key })
+                });
+
+                if (res.ok) {
+                    const data = await res.json();
+                    document.getElementById('userRank').textContent = data.rank || '-';
+                    document.getElementById('userVotes').textContent = data.votes || 0;
+
+                    const panel = document.getElementById('stats-panel');
+                    panel.classList.remove('d-none');
+                    panel.style.animation = "fadeIn 0.5s ease";
+                }
+            } catch (e) {
+                console.error(e);
+            } finally {
+                btn.textContent = originalText;
+            }
         };
 
         document.getElementById('copyBtn').onclick = function () {

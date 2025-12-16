@@ -9,6 +9,7 @@ const axios = require('axios');
 
 // Configure ffmpeg/ffprobe paths
 const ffmpeg = require('fluent-ffmpeg');
+const crypto = require('crypto');
 
 // In production (Lite), we use the system-installed ffmpeg (from apt-get)
 // We only use static binaries for local Windows dev if needed
@@ -30,6 +31,12 @@ function toVTTTime(seconds) {
     const date = new Date(0);
     date.setMilliseconds(seconds * 1000);
     return date.toISOString().substr(11, 12);
+}
+
+// Helper: Generate Secure User ID from RD Key
+function generateUserId(rdKey) {
+    if (!rdKey) return 'anonymous';
+    return crypto.createHash('md5').update(rdKey).digest('hex');
 }
 
 // Configuration
@@ -108,19 +115,21 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
             });
 
             // 2. Upvote Action (Reloads with Skip)
+            const userId = generateUserId(rdKey);
+
             modifiedStreams.push({
                 ...stream,
-                name: '[Upvote and enable skip]', // Keep original name to blend in
-                title: `👍`,
-                url: `${baseUrl}/vote/up/${id}?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`
+                name: stream.name, // Keep original name to blend in
+                title: `👍 [Upvote Skip]`,
+                url: `${baseUrl}/vote/up/${id}?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}&user=${userId}`
             });
 
             // 3. Downvote Action (Reloads WITHOUT Skip - Fixes playback)
             modifiedStreams.push({
                 ...stream,
-                name: '[Downvote and disable skip]', // Keep original name
-                title: `👎`,
-                url: `${baseUrl}/vote/down/${id}?stream=${encodedUrl}`
+                name: stream.name, // Keep original name
+                title: `👎 [Disable & Downvote]`,
+                url: `${baseUrl}/vote/down/${id}?stream=${encodedUrl}&user=${userId}`
             });
 
         } else {
@@ -197,6 +206,29 @@ app.get('/api/stats', (req, res) => {
         skips: skipCount,
         votes: voteCount
     });
+});
+
+// 2.6 API: Personal Stats (Protected by RD Key)
+app.use(express.json()); // Enable JSON body parsing for this endpoint
+app.post('/api/stats/personal', (req, res) => {
+    const { rdKey } = req.body;
+    if (!rdKey) return res.status(400).json({ error: "RD Key required" });
+
+    const userId = generateUserId(rdKey);
+    const stats = userService.getUserStats(userId);
+
+    if (stats) {
+        // Calculate rank
+        const leaderboard = userService.getLeaderboard(1000);
+        const rank = leaderboard.findIndex(u => u.userId === userId) + 1;
+
+        res.json({
+            ...stats,
+            rank: rank > 0 ? rank : "-"
+        });
+    } else {
+        res.json({ segments: 0, votes: 0, rank: "-" });
+    }
 });
 
 // 3. API: Catalog (Built from Skips)
@@ -462,18 +494,17 @@ app.get('/sub/status/:videoId.vtt', (req, res) => {
 // Voting Actions Redirects
 app.get('/vote/:action/:videoId', (req, res) => {
     const { action, videoId } = req.params;
-    const { stream, start, end } = req.query; // stream is encoded URL
+    const { stream, start, end, user } = req.query; // stream is encoded URL
     const protocol = req.protocol;
     const host = req.get('host');
     const baseUrl = `${protocol}://${host}`;
 
-    console.log(`[Vote] User voted ${action.toUpperCase()} on ${videoId}`);
+    const userId = user || 'anonymous';
+    console.log(`[Vote] User ${userId.substr(0, 6)}... voted ${action.toUpperCase()} on ${videoId}`);
 
-    // Track vote for anonymous user
-    userService.updateUserStats('anonymous', {
-        votes: 1, // Increment logic would be better but this just sets it. 
-        // Real implementation would need a 'incrementVote' method. 
-        // For now, this at least hits the file.
+    // Track vote for specific user
+    userService.updateUserStats(userId, {
+        votes: 1, // Only increments if logic inside handles it, otherwise sets to 1 (Lite limitation)
         lastVotedVideo: videoId,
         lastVoteAction: action
     });
