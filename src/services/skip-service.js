@@ -107,6 +107,17 @@ async function getSkipSegmentAsync(fullId) {
 }
 
 // Export the async version as the primary one for server_lite
+
+// Restored Helpers
+function getSegments(streamId) {
+    return skips[streamId] || [];
+}
+
+function getAllSegments() {
+    return skips;
+}
+
+// Export the async version as the primary one for server_lite
 module.exports = {
     getSkipSegment: getSkipSegmentAsync, // Replacing the sync export with async
     getLocalSkipSegment: getSkipSegment, // Keep sync for reference if needed
