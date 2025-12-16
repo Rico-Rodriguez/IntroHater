@@ -2,10 +2,7 @@
 	"name": "stremio-addon-introhater",
 	"version": "0.0.1",
 	"scripts": {
-		"start": "node server_lite.js",
-		"server-legacy": "node server.js",
-		"dev": "node addon.js",
-		"addon": "node addon.js"
+		"start": "node server_lite.js"
 	},
 	"dependencies": {
 		"auth0": "^4.18.0",

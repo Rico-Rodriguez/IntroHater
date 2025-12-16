@@ -1,33 +1,33 @@
-# IntroHater
+# IntroHater Lite
 
 <div align="center">
   <img src="docs/icon32.png" alt="IntroHater Logo" width="128" height="128">
   
-  **Skip intros on Stremio automatically.**
+  **Universal Skip Intro for Stremio using Smart HLS Proxying.**
 </div>
 
 ## Overview
-IntroHater is a Stremio addon designed to automatically skip the first 10 seconds of videos. It supports various stream types including direct HTTP streams, YouTube, and torrents/magnet links via Real-Debrid.
+IntroHater Lite is a specialized Stremio addon that automatically skips intros for movies and TV shows. Unlike traditional addons that rely on player seek-hints (which are often ignored), IntroHater **re-processes the video stream** into a custom HLS playlist, effectively splicing out the intro segment before it even reaches your player.
+
+This ensures compatibility across almost all devices, including TVs (Android TV, Samsung Tizen, LG WebOS) and mobile apps.
 
 ## Features
-*   **Auto-Skip**: Automatically skips the initial segment (default: 10 seconds) of supported streams.
-*   **Wide Compatibility**: Works with:
-    *   Direct MP4/WebM streams
-    *   YouTube content
-    *   Torrents & Magnet links
-*   **Real-Debrid Integration**: Optimized for use with Real-Debrid for high-speed streaming.
-*   **Visual Indicators**:
-    *   ⏭️✅ - Skipping supported (Direct/Verified)
-    *   ⏭️🎬 - YouTube skip enabled
-    *   ⏭️❓ - Skipping attempt (Best effort for complex formats)
+*   **Smart HLS Proxying**: Converts streams to HLS and physically removes intro segments from the playback manifest.
+*   **Universal Compatibility**: Works on any device that supports HLS playback (TVs, Mobile, Desktop).
+*   **Real-Debrid Integration**: Fetches high-quality streams via Real-Debrid.
+*   **Community Database**: Uses a growing database of skip segments.
+*   **Fallback Mechanism**: If splicing fails, it gracefully falls back to the original stream.
 
 ## Installation
 
 ### Prerequisites
 *   Node.js (v18 or higher)
-*   A Real-Debrid account (optional but recommended for torrents)
+*   **Real-Debrid Account**: Required for resolving cached streams.
+*   **FFmpeg**: 
+    *   **Windows**: Automatically handled via static binaries (included in dependencies).
+    *   **Linux/Docker**: Must be installed on the system (`apt-get install ffmpeg`).
 
-### Setup
+### Run Locally
 1.  **Clone the repository**:
     ```bash
     git clone https://github.com/Rico-Rodriguez/IntroHater.git
@@ -41,27 +41,18 @@ IntroHater is a Stremio addon designed to automatically skip the first 10 second
     ```bash
     npm start
     ```
-    The server will start at `http://127.0.0.1:7000`.
+    The server provides a local addon interface at `http://127.0.0.1:7005`.
 
-### Stremio Configuration
-1.  Open `http://localhost:7000/docs/configure.html` in your browser.
-2.  Enter your **Real-Debrid API Key** (Get it from [real-debrid.com/apitoken](https://real-debrid.com/apitoken)).
-3.  Click **Generate Link**.
-4.  Click **Install on Stremio** or copy the link into the Stremio search bar.
+### Configuration
+1.  Navigate to `http://localhost:7005/docs/configure.html`.
+2.  Enter your **Real-Debrid API Key**.
+3.  Install the generated addon link into Stremio.
 
 ## How It Works
-IntroHater intercepts stream requests and modifies them to include time-seek parameters:
-*   **Direct Streams**: Appends `#t=10` to the URL.
-*   **YouTube**: Adds `youtubeStartTime` to behavior hints.
-*   **Torrents**: Adds `startTime` hints for the player.
-
-## Known Limitations
-Stremio's streaming engine and various player implementations handle time seeking differently.
-*   **Working**: Direct streams (MP4/WebM) and YouTube usually work perfectly.
-*   **Inconsistent**: HLS streams and local proxy streams (127.0.0.1:11470) ignore many standard time parameters.
-*   **Not Supported**: Some AVI/MKV files that require on-the-fly transcoding may reset the timestamp.
-
-> **Note**: This project is for educational purposes.
+1.  **Intercept**: The addon intercepts your stream request.
+2.  **Analyze**: It checks a database for known intro timestamps (start/end).
+3.  **Proxy**: If an intro is found, it generates a custom `.m3u8` HLS playlist.
+4.  **Splice**: This playlist instructs the player to play segments *before* the intro, then jump immediately to segments *after* the intro.
 
 ## License
 MIT
