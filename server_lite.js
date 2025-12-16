@@ -93,10 +93,6 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
             // Point to Master Playlist which includes subtitles
             const proxyUrl = `${baseUrl}/hls/master.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}&id=${id}`;
 
-            // Debug Log once per request (not per stream to avoid spam, but here we can't easily)
-            if (stream === originalStreams[0]) {
-                console.log(`[Lite] Injecting subtitles examples: ${subtitles[0].url}`);
-            }
 
             return {
                 ...stream,
