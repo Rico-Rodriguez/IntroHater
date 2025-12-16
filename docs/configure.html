@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Configure IntroHater</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="icon32.png">
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;700&display=swap"
+        rel="stylesheet">
+
+    <!-- Styles -->
+    <link rel="stylesheet" href="css/style.css?v=2">
+</head>
+
+<body>
+
+    <header>
+        <div class="container">
+            <a href="/" class="logo text-gradient">
+                <img src="icon32.png" alt="Logo">
+                IntroHater
+            </a>
+        </div>
+    </header>
+
+    <main>
+        <section class="section">
+            <div class="container" style="padding-top: 100px; max-width: 600px;">
+
+                <div class="header-content text-center" style="margin-bottom: 40px;">
+                    <h1 class="text-gradient" style="font-size: 2.5rem; margin-bottom: 16px;">Configure Addon</h1>
+                    <p class="hero-subtitle">
+                        To skip intros, IntroHater needs permission to access your Real-Debrid streams.
+                    </p>
+                </div>
+
+                <div class="glass-panel" style="padding: 40px;">
+
+                    <form id="config-form">
+                        <div class="form-group">
+                            <label class="form-label" for="rdKey">Real-Debrid API Key</label>
+                            <div style="display: flex; gap: 10px; margin-bottom: 8px;">
+                                <input type="text" id="rdKey" class="form-input"
+                                    placeholder="Paste your key here (e.g. F4...)" required>
+                                <a href="https://real-debrid.com/apitoken" target="_blank" class="btn btn-secondary"
+                                    style="white-space: nowrap;">
+                                    Get Key ↗
+                                </a>
+                            </div>
+                            <p style="font-size: 0.8rem; color: var(--text-muted);">
+                                We need the <strong>Private Token</strong> to stream links via Torrentio.
+                            </p>
+                        </div>
+
+                        <div style="margin-top: 30px;">
+                            <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">
+                                Generate Link
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Result Section (Hidden by default) -->
+                    <div id="result-section" class="d-none"
+                        style="margin-top: 30px; border-top: 1px solid var(--border); padding-top: 30px;">
+
+                        <div class="form-group">
+                            <label class="form-label">Your Install Link</label>
+                            <div style="display: flex; gap: 10px;">
+                                <input type="text" id="installLink" class="form-input" readonly onclick="this.select()">
+                                <button id="copyBtn" class="btn btn-secondary">Copy</button>
+                            </div>
+                        </div>
+
+                        <div style="display: flex; gap: 16px; margin-top: 20px;">
+                            <a id="installBtn" href="#" class="btn btn-primary"
+                                style="flex: 1; justify-content: center;">
+                                Install on Stremio
+                            </a>
+                        </div>
+
+                        <p style="font-size: 0.85rem; color: var(--text-muted); text-align: center; margin-top: 16px;">
+                            If installation fails, copy the link above and paste it into the Stremio search bar to
+                            install manually.
+                        </p>
+                    </div>
+
+                    <div
+                        style="margin-top: 24px; text-align: center; border-top: 1px solid var(--border); padding-top: 24px;">
+                        <p style="color: var(--text-muted); font-size: 0.9rem;">
+                            Don't have Real-Debrid?
+                            <br>
+                            This addon currently requires it to proxy streams efficiently.
+                        </p>
+                    </div>
+
+                </div>
+
+            </div>
+        </section>
+    </main>
+
+    <script>
+        document.getElementById('config-form').onsubmit = function (e) {
+            e.preventDefault();
+            const key = document.getElementById('rdKey').value.trim();
+            if (!key) return;
+
+            // Construct Stremio Install URL
+            // Ensure we use stremio:// protocol (not stremios/https if mixed content is an issue locally, but standard is stremio://)
+            const protocol = 'stremio:';
+            const host = window.location.host;
+
+            // Format: stremio://DOMAIN/KEY/manifest.json
+            const installUrl = `${protocol}//${host}/${key}/manifest.json`;
+
+            // Show result
+            document.getElementById('installLink').value = installUrl;
+            document.getElementById('installBtn').href = installUrl;
+
+            // Unhide
+            document.getElementById('result-section').style.display = 'block';
+
+            // Hide generate button to reduce clutter? Or keep it.
+        };
+
+        document.getElementById('copyBtn').onclick = function () {
+            const link = document.getElementById('installLink');
+            link.select();
+            navigator.clipboard.writeText(link.value).then(() => {
+                const btn = this;
+                const originalText = btn.textContent;
+                btn.textContent = 'Copied!';
+                setTimeout(() => btn.textContent = originalText, 2000);
+            });
+        };
+    </script>
+</body>
+
+</html>

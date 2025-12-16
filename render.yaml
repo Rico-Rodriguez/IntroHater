@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: introhater-lite
+    env: node
+    plan: free
+    dockerFilePath: ./Dockerfile.lite
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: RPDB_KEY
+        sync: false
+    autoDeploy: true
