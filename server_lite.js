@@ -54,7 +54,7 @@ const manifest = {
 const builder = new addonBuilder(manifest);
 
 // Stream Handler Function
-async function handleStreamRequest(type, id, rdKey) {
+async function handleStreamRequest(type, id, rdKey, baseUrl) {
     if (!rdKey) {
         console.error("[Lite] No RD Key provided.");
         return { streams: [] };
@@ -91,19 +91,19 @@ async function handleStreamRequest(type, id, rdKey) {
         // Magic Subtitles Injection
         const subtitles = [
             {
-                url: `${PUBLIC_URL}/sub/status/${id}.vtt`,
+                url: `${baseUrl}/sub/status/${id}.vtt`,
                 lang: 'eng',
                 id: 'status',
                 label: 'ℹ️ Status (Show Segments)'
             },
             {
-                url: `${PUBLIC_URL}/sub/vote/up/${id}.vtt`,
+                url: `${baseUrl}/sub/vote/up/${id}.vtt`,
                 lang: 'eng',
                 id: 'up',
                 label: '👍 Upvote Skip'
             },
             {
-                url: `${PUBLIC_URL}/sub/vote/down/${id}.vtt`,
+                url: `${baseUrl}/sub/vote/down/${id}.vtt`,
                 lang: 'eng',
                 id: 'down',
                 label: '👎 Downvote Skip'
@@ -112,7 +112,7 @@ async function handleStreamRequest(type, id, rdKey) {
 
         if (skipSeg) {
             const encodedUrl = encodeURIComponent(stream.url);
-            const proxyUrl = `${PUBLIC_URL}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`;
+            const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`;
 
             return {
                 ...stream,
@@ -163,7 +163,12 @@ app.get(['/:config/stream/:type/:id.json', '/stream/:type/:id.json'], async (req
 
     // Handle .json extension in ID if present (Stremio quirks)
     const cleanId = id.replace('.json', '');
-    const result = await handleStreamRequest(type, cleanId, rdKey);
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+
+    // Pass baseUrl to handleStreamRequest
+    const result = await handleStreamRequest(type, cleanId, rdKey, baseUrl);
     res.json(result);
 });
 
