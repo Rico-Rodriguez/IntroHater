@@ -88,25 +88,10 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
     const modifiedStreams = originalStreams.map((stream) => {
         if (!stream.url) return null;
 
-        // Magic Subtitles Injection
-        const subtitles = [
-            {
-                url: `${baseUrl}/sub/status/${id}.vtt`,
-                lang: 'fre', // French - Fake for Status
-            },
-            {
-                url: `${baseUrl}/sub/vote/up/${id}.vtt`,
-                lang: 'ger', // German - Fake for Upvote
-            },
-            {
-                url: `${baseUrl}/sub/vote/down/${id}.vtt`,
-                lang: 'spa', // Spanish - Fake for Downvote
-            }
-        ];
-
         if (skipSeg) {
             const encodedUrl = encodeURIComponent(stream.url);
-            const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`;
+            // Point to Master Playlist which includes subtitles
+            const proxyUrl = `${baseUrl}/hls/master.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}&id=${id}`;
 
             // Debug Log once per request (not per stream to avoid spam, but here we can't easily)
             if (stream === originalStreams[0]) {
@@ -117,14 +102,10 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
                 ...stream,
                 url: proxyUrl,
                 title: `⏭️ [Smart Skip] ${stream.title || stream.name}`,
-                subtitles: subtitles,
                 behaviorHints: { notWebReady: false }
             };
         } else {
-            return {
-                ...stream,
-                subtitles: subtitles
-            };
+            return stream;
         }
     });
 
@@ -269,8 +250,67 @@ app.get('/ping', (req, res) => res.send('pong'));
 // Simple In-Memory Cache
 const manifestCache = new Map();
 
-// HLS Proxy Endpoint
-app.get('/hls/manifest.m3u8', async (req, res) => {
+// HLS Master Playlist Endpoint
+// This is the entry point for the player. It defines video + subtitles.
+app.get('/hls/master.m3u8', (req, res) => {
+    const { stream, start, end, id } = req.query;
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+
+    // Reconstruct the media URL (the video)
+    // We pass the same params to it
+    const mediaUrl = `${baseUrl}/hls/media.m3u8?stream=${encodeURIComponent(stream)}&start=${start}&end=${end}`;
+
+    // Subtitle Playlists (M3U8 wrappers)
+    const subStatus = `${baseUrl}/sub/playlist/status/${id}.m3u8`;
+    const subUp = `${baseUrl}/sub/playlist/up/${id}.m3u8`;
+    const subDown = `${baseUrl}/sub/playlist/down/${id}.m3u8`;
+
+    // Master Playlist Content
+    const master = `#EXTM3U
+#EXT-X-VERSION:3
+
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="ℹ️ Status",DEFAULT=NO,AUTOSELECT=NO,LANGUAGE="fre",URI="${subStatus}"
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="👍 Upvote Skip",DEFAULT=NO,AUTOSELECT=NO,LANGUAGE="ger",URI="${subUp}"
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="👎 Downvote Skip",DEFAULT=NO,AUTOSELECT=NO,LANGUAGE="spa",URI="${subDown}"
+
+#EXT-X-STREAM-INF:BANDWIDTH=5000000,SUBTITLES="subs"
+${mediaUrl}
+`;
+
+    res.set('Content-Type', 'application/vnd.apple.mpegurl');
+    res.send(master);
+});
+
+// Subtitle Playlist (Wrapper for VTT)
+app.get('/sub/playlist/:type/:id.m3u8', (req, res) => {
+    const { type, id } = req.params;
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+
+    // Determine the VTT URL based on type
+    let vttUrl = "";
+    if (type === 'status') vttUrl = `${baseUrl}/sub/status/${id}.vtt`;
+    else vttUrl = `${baseUrl}/sub/vote/${type}/${id}.vtt`;
+
+    const playlist = `#EXTM3U
+#EXT-X-TARGETDURATION:7200
+#EXT-X-VERSION:3
+#EXT-X-MEDIA-SEQUENCE:0
+#EXT-X-PLAYLIST-TYPE:VOD
+#EXTINF:7200,
+${vttUrl}
+#EXT-X-ENDLIST`;
+
+    res.set('Content-Type', 'application/vnd.apple.mpegurl');
+    res.send(playlist);
+});
+
+// HLS Media Playlist Endpoint (Formerly manifest.m3u8)
+// Returns the spliced video segments
+app.get('/hls/media.m3u8', async (req, res) => {
     const { stream, start: startStr, end: endStr } = req.query;
 
     if (!stream) {
