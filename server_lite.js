@@ -150,6 +150,14 @@ app.use(cors());
 // 1. Serve Website (Docs)
 app.use(express.static(path.join(__dirname, 'docs')));
 
+// Handle /configure and /:config/configure to redirect to main page or serve it
+app.get(['/configure', '/:config/configure'], (req, res) => {
+    // If config is present, we could potentially inject it, but for now just serving the static HTML is safer/easier.
+    // The user can re-enter their key or we can parse it from URL in frontend if we want to be fancy.
+    // For now, let's just serve the file.
+    res.sendFile(path.join(__dirname, 'docs', 'configure.html'));
+});
+
 // Middleware to extract config (RD Key)
 // Supports /:config/manifest.json and /manifest.json (fallback env)
 app.get(['/:config/manifest.json', '/manifest.json'], (req, res) => {
