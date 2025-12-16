@@ -75,7 +75,14 @@ async function updateUserStats(userId, updates) {
 
 function getLeaderboard(limit = 10) {
     return usersData.stats
-        .sort((a, b) => b.segments - a.segments)
+        .sort((a, b) => {
+            // Sort by Votes (primary) + Segments (secondary/legacy)
+            // Or just Votes since that's the active metric for Lite
+            const votesA = a.votes || 0;
+            const votesB = b.votes || 0;
+            if (votesB !== votesA) return votesB - votesA;
+            return (b.segments || 0) - (a.segments || 0);
+        })
         .slice(0, limit);
 }
 
