@@ -92,20 +92,17 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
         const subtitles = [
             {
                 url: `${baseUrl}/sub/status/${id}.vtt`,
-                lang: 'zxx', // Non-linguistic / Special
-                id: `status_${id}`,
+                lang: 'fre', // French - Fake for Status
                 label: 'ℹ️ Status (IntroHater)'
             },
             {
                 url: `${baseUrl}/sub/vote/up/${id}.vtt`,
-                lang: 'mis', // Miscellaneous
-                id: `vote_up_${id}`,
+                lang: 'ger', // German - Fake for Upvote
                 label: '👍 Upvote Skip'
             },
             {
                 url: `${baseUrl}/sub/vote/down/${id}.vtt`,
-                lang: 'mis', // Miscellaneous
-                id: `vote_down_${id}`,
+                lang: 'spa', // Spanish - Fake for Downvote
                 label: '👎 Downvote Skip'
             }
         ];
