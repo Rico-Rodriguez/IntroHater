@@ -1,7 +1,7 @@
 document.addEventListener('DOMContentLoaded', () => {
     // Header Scroll Effect
     const header = document.querySelector('header');
-    
+
     window.addEventListener('scroll', () => {
         if (window.scrollY > 50) {
             header.style.background = 'rgba(5, 5, 16, 0.95)';
@@ -15,7 +15,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Mobile Menu Toggle (if we add one later)
     // const menuBtn = document.querySelector('.menu-btn');
     // const navLinks = document.querySelector('.nav-links');
-    
+
     // Intersection Observer for fade-in animations
     const observerOptions = {
         threshold: 0.1,
@@ -34,4 +34,35 @@ document.addEventListener('DOMContentLoaded', () => {
     document.querySelectorAll('.reveal-on-scroll').forEach(el => {
         observer.observe(el);
     });
+
+    // Fetch Real Stats
+    fetchStats();
 });
+
+async function fetchStats() {
+    try {
+        const res = await fetch('/api/stats');
+        if (!res.ok) return; // Silent fail
+        const data = await res.json();
+
+        // Helper to animate/format numbers
+        const animateValue = (id, value) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+
+            // formatting k/m
+            let display = value;
+            if (value >= 1000000) display = (value / 1000000).toFixed(1) + 'M';
+            else if (value >= 1000) display = (value / 1000).toFixed(1) + 'k';
+
+            el.innerText = display;
+        };
+
+        animateValue('stat-users', data.users);
+        animateValue('stat-skips', data.skips);
+        animateValue('stat-votes', data.votes);
+
+    } catch (e) {
+        console.error("Stats error:", e);
+    }
+}

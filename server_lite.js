@@ -185,6 +185,20 @@ app.get('/api/leaderboard', (req, res) => {
     })));
 });
 
+// 2.5 API: Stats
+app.get('/api/stats', (req, res) => {
+    const { userCount, voteCount } = userService.getStats();
+    // Get total skips from all segments
+    const allSkips = getAllSegments();
+    const skipCount = Object.values(allSkips).flat().length;
+
+    res.json({
+        users: userCount,
+        skips: skipCount,
+        votes: voteCount
+    });
+});
+
 // 3. API: Catalog (Built from Skips)
 // 3. API: Catalog (Built from Skips with OMDB Metadata)
 app.get('/api/catalog', async (req, res) => {

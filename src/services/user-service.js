@@ -60,6 +60,12 @@ function getLeaderboard(limit = 10) {
         .slice(0, limit);
 }
 
+function getStats() {
+    const userCount = usersData.stats.length;
+    const voteCount = usersData.stats.reduce((sum, user) => sum + (user.votes || 0), 0);
+    return { userCount, voteCount };
+}
+
 // --- Token Operations ---
 
 function getUserToken(userId) {
@@ -95,6 +101,7 @@ module.exports = {
     getUserStats,
     updateUserStats,
     getLeaderboard,
+    getStats,
     getUserToken,
     storeUserToken
 };
