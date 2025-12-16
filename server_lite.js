@@ -93,17 +93,14 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
             {
                 url: `${baseUrl}/sub/status/${id}.vtt`,
                 lang: 'fre', // French - Fake for Status
-                label: 'ℹ️ Status (IntroHater)'
             },
             {
                 url: `${baseUrl}/sub/vote/up/${id}.vtt`,
                 lang: 'ger', // German - Fake for Upvote
-                label: '👍 Upvote Skip'
             },
             {
                 url: `${baseUrl}/sub/vote/down/${id}.vtt`,
                 lang: 'spa', // Spanish - Fake for Downvote
-                label: '👎 Downvote Skip'
             }
         ];
 
