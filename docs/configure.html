@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Configure IntroHater</title>
-    <link rel="icon" type="image/png" sizes="32x32" href="icon32.png">
+    <link rel="icon" type="image/png" sizes="32x32" href="/icon32.png">
 
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -15,7 +15,7 @@
         rel="stylesheet">
 
     <!-- Styles -->
-    <link rel="stylesheet" href="css/style.css?v=2">
+    <link rel="stylesheet" href="/css/style.css?v=2">
 </head>
 
 <body>
@@ -23,7 +23,7 @@
     <header>
         <div class="container">
             <a href="/" class="logo text-gradient">
-                <img src="icon32.png" alt="Logo">
+                <img src="/icon32.png" alt="Logo">
                 IntroHater
             </a>
         </div>
@@ -117,7 +117,21 @@
         </section>
     </main>
 
+    </main>
+
     <script>
+        // Auto-fill RD Key from URL (e.g. /KEY/configure)
+        (function () {
+            const parts = window.location.pathname.split('/').filter(p => p);
+            // If path is like /KEY/configure, parts[0] is KEY
+            if (parts.length >= 2 && parts[parts.length - 1] === 'configure') {
+                const potentialKey = parts[0];
+                if (potentialKey.length > 5) { // Basic sanity check
+                    document.getElementById('rdKey').value = potentialKey;
+                }
+            }
+        })();
+
         document.getElementById('config-form').onsubmit = function (e) {
             e.preventDefault();
             const key = document.getElementById('rdKey').value.trim();
