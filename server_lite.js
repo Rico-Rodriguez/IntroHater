@@ -103,14 +103,14 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
             modifiedStreams.push({
                 ...stream,
                 url: proxyUrl,
-                title: `⏭️ [Smart Skip] ${stream.title || stream.name}`,
+                title: `[Play with skip] ${stream.title || stream.name}`,
                 behaviorHints: { notWebReady: false }
             });
 
             // 2. Upvote Action (Reloads with Skip)
             modifiedStreams.push({
                 ...stream,
-                name: 'Upvote and play', // Keep original name to blend in
+                name: '[Upvote and enable skip]', // Keep original name to blend in
                 title: `👍`,
                 url: `${baseUrl}/vote/up/${id}?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`
             });
@@ -118,8 +118,8 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
             // 3. Downvote Action (Reloads WITHOUT Skip - Fixes playback)
             modifiedStreams.push({
                 ...stream,
-                name: 'Downvote and disable skip', // Keep original name
-                title: `🚫`,
+                name: '[Downvote and disable skip]', // Keep original name
+                title: `👎`,
                 url: `${baseUrl}/vote/down/${id}?stream=${encodedUrl}`
             });
 
