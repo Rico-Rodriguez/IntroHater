@@ -235,10 +235,11 @@ app.post('/api/stats/personal', (req, res) => {
 
         res.json({
             ...stats,
+            userId: userId, // Return the ID so we can show it
             rank: rank > 0 ? rank : "-"
         });
     } else {
-        res.json({ segments: 0, votes: 0, rank: "-" });
+        res.json({ userId: userId, segments: 0, votes: 0, rank: "-" });
     }
 });
 

@@ -46,7 +46,12 @@ async function updateUserStats(userId, updates) {
         usersData.stats.push(stats);
     }
 
-    // Apply updates
+    // Apply updates - specific handling for votes increment
+    if (updates.votes && typeof updates.votes === 'number') {
+        stats.votes = (stats.votes || 0) + updates.votes;
+        delete updates.votes; // Remove from merge to prevent overwriting
+    }
+
     Object.assign(stats, updates);
     stats.lastUpdated = new Date().toISOString();
 

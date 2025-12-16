@@ -62,7 +62,8 @@
                         <div id="stats-panel" class="d-none"
                             style="margin-top: 15px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 8px;">
                             <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 0.9rem;">🪙 Your Rank: <strong id="userRank">-</strong></span>
+                                <span style="font-size: 0.9rem;">👤 ID: <strong id="userIdDisplay">-</strong></span>
+                                <span style="font-size: 0.9rem;">🪙 Rank: <strong id="userRank">-</strong></span>
                                 <span style="font-size: 0.9rem;">🗳️ Votes: <strong id="userVotes">0</strong></span>
                             </div>
                         </div>
@@ -176,6 +177,13 @@
 
                 if (res.ok) {
                     const data = await res.json();
+
+                    // Show ID (Shortened)
+                    if (data.userId) {
+                        document.getElementById('userIdDisplay').textContent = data.userId.substr(0, 8);
+                        document.getElementById('userIdDisplay').title = data.userId; // Full ID on hover
+                    }
+
                     document.getElementById('userRank').textContent = data.rank || '-';
                     document.getElementById('userVotes').textContent = data.votes || 0;
 
