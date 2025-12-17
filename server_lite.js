@@ -105,37 +105,15 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
 
         // 1. Smart Skip Stream (The Main Experience)
         if (skipSeg) {
-            // Point to Master Playlist (still good for HLS compliance) 
-            // OR reuse the media playlist directly if we don't use subtitles anymore.
-            // Let's stick to master.m3u8 for future-proofing, but we remove the subtitle params in the master generation if unused.
-            // Actually, let's simplify back to the direct HLS proxy for reliability unless we need the master.
-            const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`;
+            const userId = generateUserId(rdKey);
+            const proxyUrl = `${baseUrl}/hls/master.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}&id=${id}&user=${userId}`;
 
             modifiedStreams.push({
                 ...stream,
                 url: proxyUrl,
-                title: `[Play with skip] ${stream.title || stream.name}`,
+                title: `[IntroHater] ${stream.title || stream.name}`,
                 behaviorHints: { notWebReady: false }
             });
-
-            // 2. Upvote Action (Reloads with Skip)
-            const userId = generateUserId(rdKey);
-
-            modifiedStreams.push({
-                ...stream,
-                name: '👍', // Keep original name to blend in
-                title: `[Upvote skip & play]`,
-                url: `${baseUrl}/vote/up/${id}?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}&user=${userId}`
-            });
-
-            // 3. Downvote Action (Reloads WITHOUT Skip - Fixes playback)
-            modifiedStreams.push({
-                ...stream,
-                name: '👎', // Keep original name
-                title: `[Disable skip & Downvote]`,
-                url: `${baseUrl}/vote/down/${id}?stream=${encodedUrl}&user=${userId}`
-            });
-
         } else {
             // No skip found - just pass through or maybe offer "Create"? 
             // For Lite, we just pass through.
@@ -351,19 +329,18 @@ const manifestCache = new Map();
 // HLS Master Playlist Endpoint
 // This is the entry point for the player. It defines video + subtitles.
 app.get('/hls/master.m3u8', (req, res) => {
-    const { stream, start, end, id } = req.query;
+    const { stream, start, end, id, user } = req.query;
     const protocol = req.protocol;
     const host = req.get('host');
     const baseUrl = `${protocol}://${host}`;
 
     // Reconstruct the media URL (the video)
-    // We pass the same params to it
     const mediaUrl = `${baseUrl}/hls/media.m3u8?stream=${encodeURIComponent(stream)}&start=${start}&end=${end}`;
 
-    // Subtitle Playlists (M3U8 wrappers)
+    // Subtitle Playlists (M3U8 wrappers) with user propagation
     const subStatus = `${baseUrl}/sub/playlist/status/${id}.m3u8`;
-    const subUp = `${baseUrl}/sub/playlist/up/${id}.m3u8`;
-    const subDown = `${baseUrl}/sub/playlist/down/${id}.m3u8`;
+    const subUp = `${baseUrl}/sub/playlist/up/${id}.m3u8?user=${user}`;
+    const subDown = `${baseUrl}/sub/playlist/down/${id}.m3u8?user=${user}`;
 
     // Master Playlist Content
     const master = `#EXTM3U
@@ -384,6 +361,7 @@ ${mediaUrl}
 // Subtitle Playlist (Wrapper for VTT)
 app.get('/sub/playlist/:type/:id.m3u8', (req, res) => {
     const { type, id } = req.params;
+    const { user } = req.query;
     const protocol = req.protocol;
     const host = req.get('host');
     const baseUrl = `${protocol}://${host}`;
@@ -391,7 +369,7 @@ app.get('/sub/playlist/:type/:id.m3u8', (req, res) => {
     // Determine the VTT URL based on type
     let vttUrl = "";
     if (type === 'status') vttUrl = `${baseUrl}/sub/status/${id}.vtt`;
-    else vttUrl = `${baseUrl}/sub/vote/${type}/${id}.vtt`;
+    else vttUrl = `${baseUrl}/sub/vote/${type}/${id}.vtt?user=${user || 'anonymous'}`;
 
     const playlist = `#EXTM3U
 #EXT-X-TARGETDURATION:7200
@@ -516,6 +494,34 @@ app.get('/sub/status/:videoId.vtt', (req, res) => {
             vtt += `${start} --> ${end}\n[${label}] ⏭️ Skipping...\n\n`;
         });
     }
+
+    res.set('Content-Type', 'text/vtt');
+    res.send(vtt);
+});
+
+// Voting VTT Endpoint: The "Button" Action
+// When the player requests this VTT, we register the vote
+app.get('/sub/vote/:action/:videoId.vtt', (req, res) => {
+    const { action, videoId } = req.params;
+    const { user } = req.query;
+
+    const userId = user || 'anonymous';
+    console.log(`[VTT-Vote] User ${userId.substr(0, 6)}... voted ${action.toUpperCase()} via subtitle selection on ${videoId}`);
+
+    // Register Vote
+    userService.updateUserStats(userId, {
+        votes: 1,
+        videoId: videoId
+    });
+
+    // Return a WEBVTT that confirms the action
+    const message = action === 'up' ? "✅ Vote Registered!" : "⚠️ Skip Reported";
+    const vtt = `WEBVTT
+
+00:00:00.000 --> 00:00:05.000
+${message}
+(Thank you for contributing!)
+`;
 
     res.set('Content-Type', 'text/vtt');
     res.send(vtt);
