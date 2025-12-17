@@ -33,10 +33,16 @@ function formatEpisodesList(episodes) {
 
 async function initializeCatalog() {
     const catalog = await fetchCatalog();
+    const table = document.getElementById('catalogTable');
+    if (!table) return;
 
     if (!catalog?.media || Object.keys(catalog.media).length === 0) {
-        document.querySelector('#catalogTable tbody').innerHTML =
-            '<tr><td colspan="5">No entries found</td></tr>';
+        let tbody = table.querySelector('tbody');
+        if (!tbody) {
+            tbody = document.createElement('tbody');
+            table.appendChild(tbody);
+        }
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px;">No entries found</td></tr>';
         return;
     }
 
