@@ -194,13 +194,17 @@ app.get('/api/leaderboard', async (req, res) => {
 app.get('/api/stats', async (req, res) => {
     const { userCount, voteCount } = await userService.getStats();
     // Get total skips from all segments
-    const allSkips = getAllSegments();
-    const skipCount = Object.values(allSkips).flat().length;
+    const allSkips = await getAllSegments();
+    const localSegmentCount = Object.values(allSkips).flat().length;
+
+    // Ani-Skip Estimate (approximate based on their catalog size)
+    const ANISKIP_ESTIMATE = 145000;
 
     res.json({
         users: userCount,
-        skips: skipCount,
-        votes: voteCount
+        skips: localSegmentCount + ANISKIP_ESTIMATE, // Total skips served (Combined)
+        votes: voteCount,
+        segments: localSegmentCount // Local community segments
     });
 });
 
@@ -231,20 +235,25 @@ app.post('/api/stats/personal', async (req, res) => {
 
 // 2.7 API: Report Issue (From Dashboard)
 app.post('/api/report', async (req, res) => {
-    const { rdKey, videoId, reason } = req.body;
+    const { rdKey, videoId, reason, segmentIndex } = req.body;
     if (!rdKey || !videoId) return res.status(400).json({ error: "RD Key and Video ID required" });
 
     const userId = generateUserId(rdKey);
-    console.log(`[Report] User ${userId.substr(0, 6)} reported ${videoId}: ${reason || 'No reason'}`);
+    console.log(`[Report] User ${userId.substr(0, 6)} reported ${videoId} (Seg: ${segmentIndex}): ${reason || 'No reason'}`);
 
-    // Register Report in Skip Service
-    // For now, we report the first segment of that video
-    const segments = await getSegments(videoId);
-    if (segments && segments.length > 0) {
-        await skipService.reportSegment(videoId, 0);
+    // Verify RD Key to prevent spam
+    try {
+        await axios.get('https://api.real-debrid.com/rest/1.0/user', {
+            headers: { 'Authorization': `Bearer ${rdKey}` }
+        });
+    } catch (e) {
+        return res.status(401).json({ error: "Invalid Real-Debrid Key. Only real users can report." });
     }
 
-    // Still track in user stats for history/reputation
+    // Register Report in Skip Service
+    await skipService.reportSegment(videoId, segmentIndex || 0);
+
+    // Track impact
     await userService.updateUserStats(userId, {
         votes: -1,
         videoId: videoId
@@ -269,15 +278,27 @@ app.get('/api/search', async (req, res) => {
 
 // 2.9 API: Submit Segment
 app.post('/api/submit', async (req, res) => {
-    const { rdKey, videoId, start, end, label } = req.body;
-    if (!rdKey || !videoId || start === undefined || end === undefined) {
+    const { rdKey, imdbID, season, episode, start, end, label } = req.body;
+    if (!rdKey || !imdbID || start === undefined || end === undefined) {
         return res.status(400).json({ error: "Missing required fields" });
     }
 
-    const userId = generateUserId(rdKey);
-    console.log(`[Submit] User ${userId.substr(0, 6)} submitted ${start}-${end}s for ${videoId}`);
+    // Verify RD Key to prevent bot submissions
+    try {
+        const rdCheck = await axios.get('https://api.real-debrid.com/rest/1.0/user', {
+            headers: { 'Authorization': `Bearer ${rdKey}` }
+        });
+        if (!rdCheck.data || !rdCheck.data.id) throw new Error("Invalid user");
+    } catch (e) {
+        return res.status(401).json({ error: "Invalid Real-Debrid Key. Only active RD users can contribute." });
+    }
 
-    const newSeg = await skipService.addSkipSegment(videoId, parseFloat(start), parseFloat(end), label || "Intro", userId);
+    const userId = generateUserId(rdKey);
+    const fullId = season && episode ? `${imdbID}:${season}:${episode}` : imdbID;
+
+    console.log(`[Submit] User ${userId.substr(0, 6)} submitted ${start}-${end}s for ${fullId}`);
+
+    const newSeg = await skipService.addSkipSegment(fullId, parseFloat(start), parseFloat(end), label || "Intro", userId);
 
     // Give user credit
     await userService.updateUserStats(userId, {

@@ -58,84 +58,9 @@
                             </p>
                         </div>
 
-                        <!-- Search Section -->
-                        <div id="search-section"
-                            style="margin-top: 25px; border-top: 1px solid var(--border); padding-top: 25px;">
-                            <h3
-                                style="font-size: 1.1rem; margin-bottom: 15px; font-family: 'Space Grotesk', sans-serif;">
-                                🔍 Search & Contribute</h3>
-                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-bottom: 15px;">
-                                Help the community! Search for a show and submit its intro timestamps.
-                            </p>
-                            <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-                                <input type="text" id="searchInput" class="form-input"
-                                    placeholder="Search for a show or movie...">
-                                <button type="button" id="searchBtn" class="btn btn-secondary">Search</button>
-                            </div>
-                            <div id="search-results"
-                                style="display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow-y: auto;">
-                                <!-- Results injected here -->
-                            </div>
-                        </div>
-
-                        <!-- Submission Modal (Overlay) -->
-                        <div id="submit-overlay" class="d-none"
-                            style="position: fixed; inset: 0; background: rgba(0,0,0,0.8); z-index: 1000; display: none; align-items: center; justify-content: center; padding: 20px;">
-                            <div class="glass-panel" style="width: 100%; max-width: 500px; padding: 30px;">
-                                <h2 id="submit-title" style="margin-bottom: 20px;">Submit Skip</h2>
-                                <div id="submit-media-info"
-                                    style="margin-bottom: 20px; display: flex; gap: 15px; align-items: center;">
-                                    <img id="submit-poster" src=""
-                                        style="width: 60px; height: 90px; border-radius: 4px; object-fit: cover;">
-                                    <div>
-                                        <div id="submit-name" style="font-weight: 600;">-</div>
-                                        <div id="submit-year" style="font-size: 0.8rem; color: var(--text-muted);">-
-                                        </div>
-                                    </div>
-                                </div>
-                                <div class="form-group">
-                                    <label class="form-label">Start Time (seconds or mm:ss)</label>
-                                    <input type="text" id="skipStart" class="form-input" placeholder="e.g. 01:30 or 90">
-                                </div>
-                                <div class="form-group">
-                                    <label class="form-label">End Time (seconds or mm:ss)</label>
-                                    <input type="text" id="skipEnd" class="form-input" placeholder="e.g. 03:00 or 180">
-                                </div>
-                                <div style="display: flex; gap: 10px; margin-top: 20px;">
-                                    <button type="button" onclick="closeSubmit()" class="btn btn-secondary"
-                                        style="flex: 1;">Cancel</button>
-                                    <button type="button" id="submitSkipBtn" class="btn btn-primary"
-                                        style="flex: 1; justify-content: center;">Submit</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Stats Panel -->
-                        <div id="stats-panel" class="d-none"
-                            style="margin-top: 25px; padding: 15px; background: rgba(0,0,0,0.2); border-radius: 8px;">
-                            <div style="display: flex; justify-content: space-between; align-items: center;">
-                                <span style="font-size: 0.9rem;">👤 ID: <strong id="userIdDisplay">-</strong></span>
-                                <span style="font-size: 0.9rem;">🪙 Rank: <strong id="userRank">-</strong></span>
-                                <span style="font-size: 0.9rem;">🗳️ Votes: <strong id="userVotes">0</strong></span>
-                            </div>
-                        </div>
-
-                        <!-- History Panel -->
-                        <div id="history-panel" class="d-none" style="margin-top: 20px;">
-                            <h3 style="font-size: 1rem; margin-bottom: 12px; font-family: 'Space Grotesk', sans-serif;">
-                                Recent Submissions Used</h3>
-                            <div id="history-list"
-                                style="max-height: 250px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px;">
-                                <!-- Items injected here -->
-                            </div>
-                        </div>
-
-                        <div style="margin-top: 20px; display: flex; gap: 10px;">
-                            <button type="button" id="checkStatsBtn" class="btn btn-secondary" style="flex: 1;">
-                                Check Stats
-                            </button>
-                            <button type="submit" class="btn btn-primary" style="flex: 1; justify-content: center;">
-                                Generate Link
+                        <div style="margin-top: 20px;">
+                            <button type="submit" class="btn btn-primary" style="width: 100%; justify-content: center;">
+                                Generate Install Link
                             </button>
                         </div>
                     </form>
@@ -168,13 +93,24 @@
                     <div
                         style="margin-top: 24px; text-align: center; border-top: 1px solid var(--border); padding-top: 24px;">
                         <p style="color: var(--text-muted); font-size: 0.9rem;">
-                            Don't have Real-Debrid?
+                            Want to contribute or check history?
                             <br>
-                            This addon currently requires it to proxy streams efficiently.
+                            Go to the <a href="/community.html" style="color: var(--primary);">Community Portal</a>.
                         </p>
                     </div>
 
                 </div>
+
+                <div
+                    style="margin-top: 24px; text-align: center; border-top: 1px solid var(--border); padding-top: 24px;">
+                    <p style="color: var(--text-muted); font-size: 0.9rem;">
+                        Don't have Real-Debrid?
+                        <br>
+                        This addon currently requires it to proxy streams efficiently.
+                    </p>
+                </div>
+
+            </div>
 
             </div>
         </section>
