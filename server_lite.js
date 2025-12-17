@@ -451,8 +451,12 @@ app.get('/hls/manifest.m3u8', async (req, res) => {
         return res.status(400).send("Missing stream URL");
     }
 
-    // --- IMPLICIT UPVOTING & HISTORY ---
-    if (videoId && userId) {
+    // --- IMPLICIT UPVOTING & HISTORY (Debounced per session) ---
+    const telemetryKey = `${userId}:${videoId}`;
+    if (videoId && userId && !global.loggedHistory?.[telemetryKey]) {
+        if (!global.loggedHistory) global.loggedHistory = {};
+        global.loggedHistory[telemetryKey] = Date.now();
+
         console.log(`[Telemetry] Play logged for ${userId.substr(0, 6)} on ${videoId}`);
 
         // Log to history
@@ -466,6 +470,14 @@ app.get('/hls/manifest.m3u8', async (req, res) => {
             votes: 1,
             videoId: videoId
         });
+
+        // GC old history logs every hour
+        if (Object.keys(global.loggedHistory).length > 1000) {
+            const cutoff = Date.now() - 3600000;
+            for (const k in global.loggedHistory) {
+                if (global.loggedHistory[k] < cutoff) delete global.loggedHistory[k];
+            }
+        }
     }
 
     try {

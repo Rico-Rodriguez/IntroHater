@@ -8,31 +8,38 @@ const DATA_FILE = path.join(__dirname, '../data/skips.json');
 // In-memory cache (Fallback)
 let skipsData = {}; // Format: { "imdb:s:e": [ { start, end, label, votes } ] }
 
-// Persistence State
-let useMongo = false;
-let skipsCollection = null;
-const MAL_CACHE = {}; // Cache for Aniskip Mapping
-
 // Initialize
-(async () => {
-    try {
-        skipsCollection = await mongoService.getCollection('skips');
+let initPromise = null;
 
-        if (skipsCollection) {
-            useMongo = true;
-            console.log('[SkipService] Using MongoDB for persistence.');
-            // Index by fullId to quick lookups
-            // MongoDB Structure: { fullId: "tt:s:e", segments: [...] }
-            await skipsCollection.createIndex({ fullId: 1 }, { unique: true });
-        } else {
-            console.log('[SkipService] MongoDB not available. Using local JSON file (Ephemeral on Render).');
+function ensureInit() {
+    if (initPromise) return initPromise;
+
+    initPromise = (async () => {
+        try {
+            console.log('[SkipService] Initializing...');
+            skipsCollection = await mongoService.getCollection('skips');
+
+            if (skipsCollection) {
+                useMongo = true;
+                console.log('[SkipService] Connected to MongoDB.');
+                try {
+                    await skipsCollection.createIndex({ fullId: 1 }, { unique: true });
+                } catch (e) { /* Index might already exist */ }
+            } else {
+                console.log('[SkipService] MongoDB not available. Using local JSON.');
+                await loadSkips();
+            }
+        } catch (e) {
+            console.error("[SkipService] Init Error:", e);
             await loadSkips();
         }
-    } catch (e) {
-        console.error("[SkipService] Init Error:", e);
-        await loadSkips();
-    }
-})();
+    })();
+
+    return initPromise;
+}
+
+// Trigger early
+ensureInit();
 
 async function loadSkips() {
     try {
@@ -62,13 +69,22 @@ async function saveSkips() {
 
 // Get all segments for a specific video ID
 async function getSegments(fullId) {
-    if (useMongo) {
-        const doc = await skipsCollection.findOne({ fullId });
-        if (doc) {
-            console.log(`[SkipService] Found ${doc.segments.length} segments in Mongo for ${fullId}`);
-            return doc.segments;
-        } else {
-            console.log(`[SkipService] No segments found in Mongo for ${fullId}`);
+    await ensureInit();
+
+    if (useMongo && skipsCollection) {
+        try {
+            const cleanId = String(fullId).trim();
+            const doc = await skipsCollection.findOne({ fullId: cleanId });
+
+            if (doc) {
+                console.log(`[SkipService] Found ${doc.segments.length} segments in Mongo for [${cleanId}]`);
+                return doc.segments;
+            } else {
+                console.log(`[SkipService] No segments found in Mongo for [${cleanId}]`);
+                return [];
+            }
+        } catch (e) {
+            console.error("[SkipService] Mongo Query Error:", e.message);
             return [];
         }
     }
