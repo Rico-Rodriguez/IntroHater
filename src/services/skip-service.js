@@ -165,6 +165,8 @@ async function addSkipSegment(fullId, start, end, label = "Intro", userId = "ano
     const newSegment = {
         start, end, label,
         votes: 1,
+        verified: false, // All new submissions start unverified
+        reportCount: 0,
         contributors: [userId],
         createdAt: new Date().toISOString()
     };
@@ -183,9 +185,74 @@ async function addSkipSegment(fullId, start, end, label = "Intro", userId = "ano
     return newSegment;
 }
 
+// --- Admin Operations ---
+
+async function getPendingModeration() {
+    const allSkips = await getAllSegments();
+    const pending = [];
+    const reported = [];
+
+    for (const [fullId, segments] of Object.entries(allSkips)) {
+        segments.forEach((seg, index) => {
+            if (!seg.verified) {
+                pending.push({ fullId, index, ...seg });
+            }
+            if (seg.reportCount > 0) {
+                reported.push({ fullId, index, ...seg });
+            }
+        });
+    }
+
+    return { pending, reported };
+}
+
+async function resolveModeration(fullId, index, action) {
+    if (useMongo) {
+        const doc = await skipsCollection.findOne({ fullId });
+        if (!doc || !doc.segments[index]) return false;
+
+        if (action === 'approve') {
+            doc.segments[index].verified = true;
+            doc.segments[index].reportCount = 0;
+        } else if (action === 'delete') {
+            doc.segments.splice(index, 1);
+        }
+
+        await skipsCollection.updateOne({ fullId }, { $set: { segments: doc.segments } });
+    } else {
+        if (!skipsData[fullId] || !skipsData[fullId][index]) return false;
+
+        if (action === 'approve') {
+            skipsData[fullId][index].verified = true;
+            skipsData[fullId][index].reportCount = 0;
+        } else if (action === 'delete') {
+            skipsData[fullId].splice(index, 1);
+        }
+        await saveSkips();
+    }
+    return true;
+}
+
+async function reportSegment(fullId, index) {
+    if (useMongo) {
+        const doc = await skipsCollection.findOne({ fullId });
+        if (!doc || !doc.segments[index]) return false;
+        doc.segments[index].reportCount = (doc.segments[index].reportCount || 0) + 1;
+        await skipsCollection.updateOne({ fullId }, { $set: { segments: doc.segments } });
+    } else {
+        if (!skipsData[fullId] || !skipsData[fullId][index]) return false;
+        skipsData[fullId][index].reportCount = (skipsData[fullId][index].reportCount || 0) + 1;
+        await saveSkips();
+    }
+    return true;
+}
+
 module.exports = {
     getSkipSegment,
     getSegments,
     getAllSegments,
-    addSkipSegment
+    addSkipSegment,
+    getPendingModeration,
+    resolveModeration,
+    reportSegment
 };

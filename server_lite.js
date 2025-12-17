@@ -50,7 +50,7 @@ const manifest = {
     version: "1.0.0",
     name: "IntroHater Lite",
     description: "Universal Skip Intro for Stremio (TV/Mobile/PC)",
-    resources: ["stream", "subtitles"],
+    resources: ["stream"],
     types: ["movie", "series", "anime"],
     catalogs: [],
     behaviorHints: {
@@ -105,12 +105,13 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
 
         // 1. Smart Skip Stream (The Main Experience)
         if (skipSeg) {
-            const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`;
+            const userId = generateUserId(rdKey);
+            const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}&id=${id}&user=${userId}`;
 
             modifiedStreams.push({
                 ...stream,
                 url: proxyUrl,
-                title: `[IntroHater] ${stream.title || stream.name}`,
+                title: `🚀 [IntroHater] ${stream.title || stream.name}`,
                 behaviorHints: { notWebReady: false }
             });
         } else {
@@ -204,7 +205,7 @@ app.get('/api/stats', async (req, res) => {
 });
 
 // 2.6 API: Personal Stats (Protected by RD Key)
-app.use(express.json()); // Enable JSON body parsing for this endpoint
+app.use(express.json()); // Enable JSON body parsing
 app.post('/api/stats/personal', async (req, res) => {
     const { rdKey } = req.body;
     if (!rdKey) return res.status(400).json({ error: "RD Key required" });
@@ -219,57 +220,96 @@ app.post('/api/stats/personal', async (req, res) => {
 
         res.json({
             ...stats,
-            userId: userId, // Return the ID so we can show it
-            rank: rank > 0 ? rank : "-"
+            userId: userId,
+            rank: rank > 0 ? rank : "-",
+            history: stats.watchHistory || [] // Explicitly return history
         });
     } else {
-        res.json({ userId: userId, segments: 0, votes: 0, rank: "-" });
+        res.json({ userId: userId, segments: 0, votes: 0, rank: "-", history: [] });
     }
 });
 
-// 2.7 API: Subtitles Resource (The Voting Buttons)
-// Responds to /subtitles/:type/:id.json
-app.get(['/:config/subtitles/:type/:id.json', '/subtitles/:type/:id.json'], async (req, res) => {
-    const { config, type, id } = req.params;
-    const cleanId = id.replace('.json', '');
-    const rdKey = config || process.env.RPDB_KEY;
+// 2.7 API: Report Issue (From Dashboard)
+app.post('/api/report', async (req, res) => {
+    const { rdKey, videoId, reason } = req.body;
+    if (!rdKey || !videoId) return res.status(400).json({ error: "RD Key and Video ID required" });
+
     const userId = generateUserId(rdKey);
+    console.log(`[Report] User ${userId.substr(0, 6)} reported ${videoId}: ${reason || 'No reason'}`);
 
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const baseUrl = `${protocol}://${host}`;
-
-    // Only provide voting tracks if we have a skip for this video
-    const skipSeg = await getSkipSegment(cleanId);
-    if (!skipSeg) {
-        return res.json({ subtitles: [] });
+    // Register Report in Skip Service
+    // For now, we report the first segment of that video
+    const segments = await getSegments(videoId);
+    if (segments && segments.length > 0) {
+        await skipService.reportSegment(videoId, 0);
     }
 
-    res.json({
-        subtitles: [
-            {
-                id: `ih_status_${cleanId}`,
-                url: `${baseUrl}/sub/status/${cleanId}.vtt`,
-                lang: 'ℹ️ Status'
-            },
-            {
-                id: `ih_up_${cleanId}`,
-                url: `${baseUrl}/sub/vote/up/${cleanId}.vtt?user=${userId}`,
-                lang: '👍 Upvote Skip'
-            },
-            {
-                id: `ih_down_${cleanId}`,
-                url: `${baseUrl}/sub/vote/down/${cleanId}.vtt?user=${userId}`,
-                lang: '⚠️ Report Issue'
-            }
-        ]
+    // Still track in user stats for history/reputation
+    await userService.updateUserStats(userId, {
+        votes: -1,
+        videoId: videoId
     });
+
+    res.json({ success: true, message: "Issue reported. Thank you!" });
+});
+
+// 2.8 API: Search (Proxy to OMDB)
+app.get('/api/search', async (req, res) => {
+    const { q } = req.query;
+    const omdbKey = process.env.OMDB_API_KEY;
+    if (!q || !omdbKey) return res.json({ Search: [] });
+
+    try {
+        const response = await axios.get(`https://www.omdbapi.com/?s=${encodeURIComponent(q)}&apikey=${omdbKey}`);
+        res.json(response.data);
+    } catch (e) {
+        res.status(500).json({ error: "Search failed" });
+    }
+});
+
+// 2.9 API: Submit Segment
+app.post('/api/submit', async (req, res) => {
+    const { rdKey, videoId, start, end, label } = req.body;
+    if (!rdKey || !videoId || start === undefined || end === undefined) {
+        return res.status(400).json({ error: "Missing required fields" });
+    }
+
+    const userId = generateUserId(rdKey);
+    console.log(`[Submit] User ${userId.substr(0, 6)} submitted ${start}-${end}s for ${videoId}`);
+
+    const newSeg = await skipService.addSkipSegment(videoId, parseFloat(start), parseFloat(end), label || "Intro", userId);
+
+    // Give user credit
+    await userService.updateUserStats(userId, {
+        segments: 1
+    });
+
+    res.json({ success: true, segment: newSeg });
+});
+
+// 2.10 API: Admin Moderation (Protected)
+const ADMIN_PASS = process.env.ADMIN_PASSWORD || "admin123";
+
+app.post('/api/admin/pending', async (req, res) => {
+    const { password } = req.body;
+    if (password !== ADMIN_PASS) return res.status(401).json({ error: "Unauthorized" });
+
+    const data = await skipService.getPendingModeration();
+    res.json(data);
+});
+
+app.post('/api/admin/resolve', async (req, res) => {
+    const { password, fullId, index, action } = req.body;
+    if (password !== ADMIN_PASS) return res.status(401).json({ error: "Unauthorized" });
+
+    const success = await skipService.resolveModeration(fullId, index, action);
+    res.json({ success });
 });
 
 // 3. API: Catalog (Built from Skips)
 // 3. API: Catalog (Built from Skips with OMDB Metadata)
 app.get('/api/catalog', async (req, res) => {
-    const allSkips = getAllSegments();
+    const allSkips = await getAllSegments();
     const catalog = { lastUpdated: new Date().toISOString(), media: {} };
 
     // Simple in-memory cache for metadata to avoid hitting OMDB limits
@@ -364,73 +404,50 @@ app.get('/ping', (req, res) => res.send('pong'));
 // Simple In-Memory Cache
 const manifestCache = new Map();
 
-// HLS Master Playlist Endpoint
-// This is the entry point for the player. It defines video + subtitles.
-app.get('/hls/master.m3u8', (req, res) => {
-    const { stream, start, end, id, user } = req.query;
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const baseUrl = `${protocol}://${host}`;
+app.get('/sub/status/:videoId.vtt', (req, res) => {
+    const vid = req.params.videoId;
+    const segments = getSegments(vid) || [];
 
-    // Reconstruct the media URL (the video)
-    const mediaUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodeURIComponent(stream)}&start=${start}&end=${end}`;
+    let vtt = "WEBVTT\n\n";
 
-    // Subtitle Playlists (M3U8 wrappers) with user propagation
-    const subStatus = `${baseUrl}/sub/playlist/status/${id}.m3u8`;
-    const subUp = `${baseUrl}/sub/playlist/up/${id}.m3u8?user=${user}`;
-    const subDown = `${baseUrl}/sub/playlist/down/${id}.m3u8?user=${user}`;
+    if (segments.length === 0) {
+        vtt += `00:00:00.000 --> 00:00:05.000\nNo skip segments found.\n\n`;
+    } else {
+        segments.forEach(seg => {
+            const start = toVTTTime(seg.start);
+            const end = toVTTTime(seg.end);
+            const label = seg.category || 'Intro';
+            vtt += `${start} --> ${end}\n[${label}] ⏭️ Skipping...\n\n`;
+        });
+    }
 
-    // Master Playlist Content
-    const master = `#EXTM3U
-#EXT-X-VERSION:4
-
-#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="ℹ️ Status",DEFAULT=YES,AUTOSELECT=YES,LANGUAGE="eng",URI="${subStatus}"
-#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="👍 Upvote Skip",DEFAULT=NO,AUTOSELECT=NO,LANGUAGE="eng",URI="${subUp}"
-#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="👎 Downvote Skip",DEFAULT=NO,AUTOSELECT=NO,LANGUAGE="eng",URI="${subDown}"
-
-#EXT-X-STREAM-INF:BANDWIDTH=5000000,SUBTITLES="subs"
-${mediaUrl}
-`;
-
-    res.set('Content-Type', 'application/vnd.apple.mpegurl');
-    res.send(master);
-});
-
-// Subtitle Playlist (Wrapper for VTT)
-app.get('/sub/playlist/:type/:id.m3u8', (req, res) => {
-    const { type, id } = req.params;
-    const { user } = req.query;
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const baseUrl = `${protocol}://${host}`;
-
-    // Determine the VTT URL based on type
-    let vttUrl = "";
-    if (type === 'status') vttUrl = `${baseUrl}/sub/status/${id}.vtt`;
-    else vttUrl = `${baseUrl}/sub/vote/${type}/${id}.vtt?user=${user || 'anonymous'}`;
-
-    const playlist = `#EXTM3U
-#EXT-X-TARGETDURATION:7200
-#EXT-X-VERSION:3
-#EXT-X-MEDIA-SEQUENCE:0
-#EXT-X-PLAYLIST-TYPE:VOD
-#EXTINF:7200,
-${vttUrl}
-#EXT-X-ENDLIST`;
-
-    res.set('Content-Type', 'application/vnd.apple.mpegurl');
-    res.send(playlist);
+    res.set('Content-Type', 'text/vtt');
+    res.send(vtt);
 });
 
 // HLS Media Playlist Endpoint (Formerly manifest.m3u8)
-// Returns the spliced video segments
-// HLS Media Playlist Endpoint (Formerly manifest.m3u8)
-// Returns the spliced video segments
 app.get('/hls/manifest.m3u8', async (req, res) => {
-    const { stream, start: startStr, end: endStr } = req.query;
+    const { stream, start: startStr, end: endStr, id: videoId, user: userId } = req.query;
 
     if (!stream) {
         return res.status(400).send("Missing stream URL");
+    }
+
+    // --- IMPLICIT UPVOTING & HISTORY ---
+    if (videoId && userId) {
+        console.log(`[Telemetry] Play logged for ${userId.substr(0, 6)} on ${videoId}`);
+
+        // Log to history
+        userService.addWatchHistory(userId, {
+            videoId: videoId,
+            skip: { start: parseFloat(startStr), end: parseFloat(endStr) }
+        });
+
+        // Register Vote
+        userService.updateUserStats(userId, {
+            votes: 1,
+            videoId: videoId
+        });
     }
 
     try {
@@ -512,9 +529,8 @@ app.get('/hls/manifest.m3u8', async (req, res) => {
     }
 });
 
-// 6. Magic Subtitles Endpoints
-
-// Status Track: Shows "Skipping Intro..." at correct times
+// 6. Magic Subtitles Endpoints - Status Only
+// (Voter Tracks Removed - Pivoted to Implicit Voting)
 app.get('/sub/status/:videoId.vtt', (req, res) => {
     const vid = req.params.videoId;
     // We use getSegments from skip-service which returns all segments for this ID
@@ -532,34 +548,6 @@ app.get('/sub/status/:videoId.vtt', (req, res) => {
             vtt += `${start} --> ${end}\n[${label}] ⏭️ Skipping...\n\n`;
         });
     }
-
-    res.set('Content-Type', 'text/vtt');
-    res.send(vtt);
-});
-
-// Voting VTT Endpoint: The "Button" Action
-// When the player requests this VTT, we register the vote
-app.get('/sub/vote/:action/:videoId.vtt', (req, res) => {
-    const { action, videoId } = req.params;
-    const { user } = req.query;
-
-    const userId = user || 'anonymous';
-    console.log(`[VTT-Vote] User ${userId.substr(0, 6)}... voted ${action.toUpperCase()} via subtitle selection on ${videoId}`);
-
-    // Register Vote
-    userService.updateUserStats(userId, {
-        votes: 1,
-        videoId: videoId
-    });
-
-    // Return a WEBVTT that confirms the action
-    const message = action === 'up' ? "✅ Vote Registered!" : "⚠️ Skip Reported";
-    const vtt = `WEBVTT
-
-00:00:00.000 --> 01:00:00.000
-${message}
-(You can now switch back to your regular subtitles)
-`;
 
     res.set('Content-Type', 'text/vtt');
     res.send(vtt);

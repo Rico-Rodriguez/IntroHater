@@ -73,6 +73,33 @@ async function getUserStats(userId) {
     return usersData.stats.find(s => s.userId === userId) || null;
 }
 
+async function addWatchHistory(userId, item) {
+    let stats = await getUserStats(userId);
+    if (!stats) {
+        stats = { userId, segments: 0, votes: 0, votedVideos: [], watchHistory: [], lastUpdated: new Date().toISOString() };
+    }
+
+    if (!stats.watchHistory) stats.watchHistory = [];
+
+    // Add to history (limit to last 50 items)
+    // Check if we already have this video recently to avoid spam, but update timestamp
+    const existingIndex = stats.watchHistory.findIndex(h => h.videoId === item.videoId);
+    if (existingIndex > -1) {
+        stats.watchHistory.splice(existingIndex, 1);
+    }
+
+    stats.watchHistory.unshift({
+        ...item,
+        timestamp: new Date().toISOString()
+    });
+
+    if (stats.watchHistory.length > 50) {
+        stats.watchHistory = stats.watchHistory.slice(0, 50);
+    }
+
+    return await updateUserStats(userId, { watchHistory: stats.watchHistory });
+}
+
 async function updateUserStats(userId, updates) {
     let stats;
 
@@ -197,6 +224,7 @@ async function storeUserToken(userId, token, timestamp, nonce) {
 module.exports = {
     getUserStats,
     updateUserStats,
+    addWatchHistory,
     getLeaderboard,
     getStats,
     getUserToken,

@@ -1,6 +1,5 @@
-const API_BASE_URL = (window.location.protocol === 'file:' || window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1')
-    ? 'https://introhater.com'
-    : window.location.origin;
+// Use current origin if served via http/s, fallback to production only if opening as a local file
+const API_BASE_URL = window.location.protocol === 'file:' ? 'https://introhater.com' : '';
 
 async function fetchCatalog() {
     try {
