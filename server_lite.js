@@ -197,13 +197,19 @@ app.get(['/:config/stream/:type/:id.json', '/stream/:type/:id.json'], async (req
 
 // 2. API: Leaderboard
 app.get('/api/leaderboard', async (req, res) => {
-    const board = await userService.getLeaderboard(20);
-    res.json(board.map((u, i) => ({
-        rank: i + 1,
-        userId: u.userId,
-        segments: u.segments,
-        votes: u.votes
-    })));
+    // Increased limit to 100 to allow client-side sorting visibility
+    const board = await userService.getLeaderboard(100);
+
+    // Return Object format expected by leaderboard.html
+    res.json({
+        users: board.map((u, i) => ({
+            rank: i + 1,
+            userId: u.userId,
+            segments: u.segments,
+            votes: u.votes
+        })),
+        lastUpdated: new Date().toISOString()
+    });
 });
 
 // 2.5 API: Stats

@@ -6,14 +6,12 @@ async function check() {
     await client.connect();
     const db = client.db();
 
-    // Find anyone with votes > 1
-    const highVoters = await db.collection('users').find({ votes: { $gt: 1 } }).toArray();
-    console.log("Users with > 1 vote:", highVoters);
-
-    // Check types
-    if (highVoters.length > 0) {
-        console.log("Type of votes:", typeof highVoters[0].votes);
-    }
+    // Find ALL relevant users
+    const allUsers = await db.collection('users').find({}).sort({ votes: -1 }).limit(20).toArray();
+    console.log("Top Voters in DB:");
+    allUsers.forEach((u, i) => {
+        console.log(`#${i + 1} User: ${u.userId} | Votes: ${u.votes} (Type: ${typeof u.votes})`);
+    });
 
     await client.close();
 }
