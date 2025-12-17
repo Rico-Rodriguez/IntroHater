@@ -26,7 +26,8 @@ function ensureInit() {
 
             if (skipsCollection) {
                 useMongo = true;
-                console.log('[SkipService] Connected to MongoDB.');
+                const count = await skipsCollection.countDocuments();
+                console.log(`[SkipService] Connected to MongoDB skips collection (${count} documents).`);
                 try {
                     await skipsCollection.createIndex({ fullId: 1 }, { unique: true });
                 } catch (e) { /* Index might already exist */ }

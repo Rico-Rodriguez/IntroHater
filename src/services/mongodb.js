@@ -24,7 +24,15 @@ class MongoService {
             this.client = new MongoClient(this.uri);
             await this.client.connect();
             this.db = this.client.db();
-            console.log("[MongoDB] Connected successfully.");
+            const dbName = this.db.databaseName;
+
+            // List collections to verify we are in the right place
+            const collections = await this.db.listCollections().toArray();
+            const names = collections.map(c => c.name);
+
+            console.log(`[MongoDB] Connected to database: ${dbName}`);
+            console.log(`[MongoDB] Collections found: [${names.join(', ')}]`);
+
             return this.db;
         } catch (e) {
             console.error("[MongoDB] Connection failed:", e.message);
