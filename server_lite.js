@@ -335,7 +335,7 @@ app.get('/hls/master.m3u8', (req, res) => {
     const baseUrl = `${protocol}://${host}`;
 
     // Reconstruct the media URL (the video)
-    const mediaUrl = `${baseUrl}/hls/media.m3u8?stream=${encodeURIComponent(stream)}&start=${start}&end=${end}`;
+    const mediaUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodeURIComponent(stream)}&start=${start}&end=${end}`;
 
     // Subtitle Playlists (M3U8 wrappers) with user propagation
     const subStatus = `${baseUrl}/sub/playlist/status/${id}.m3u8`;
@@ -344,11 +344,11 @@ app.get('/hls/master.m3u8', (req, res) => {
 
     // Master Playlist Content
     const master = `#EXTM3U
-#EXT-X-VERSION:3
+#EXT-X-VERSION:4
 
-#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="ℹ️ Status",DEFAULT=NO,AUTOSELECT=NO,LANGUAGE="fre",URI="${subStatus}"
-#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="👍 Upvote Skip",DEFAULT=NO,AUTOSELECT=NO,LANGUAGE="ger",URI="${subUp}"
-#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="👎 Downvote Skip",DEFAULT=NO,AUTOSELECT=NO,LANGUAGE="spa",URI="${subDown}"
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="ℹ️ Status",DEFAULT=YES,AUTOSELECT=YES,LANGUAGE="eng",URI="${subStatus}"
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="👍 Upvote Skip",DEFAULT=NO,AUTOSELECT=NO,LANGUAGE="eng",URI="${subUp}"
+#EXT-X-MEDIA:TYPE=SUBTITLES,GROUP-ID="subs",NAME="👎 Downvote Skip",DEFAULT=NO,AUTOSELECT=NO,LANGUAGE="eng",URI="${subDown}"
 
 #EXT-X-STREAM-INF:BANDWIDTH=5000000,SUBTITLES="subs"
 ${mediaUrl}
@@ -518,7 +518,7 @@ app.get('/sub/vote/:action/:videoId.vtt', (req, res) => {
     const message = action === 'up' ? "✅ Vote Registered!" : "⚠️ Skip Reported";
     const vtt = `WEBVTT
 
-00:00:00.000 --> 00:00:05.000
+00:00:00.000 --> 02:00:00.000
 ${message}
 (Thank you for contributing!)
 `;
