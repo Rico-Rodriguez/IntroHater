@@ -211,22 +211,58 @@ app.post('/api/stats/personal', async (req, res) => {
     const { rdKey } = req.body;
     if (!rdKey) return res.status(400).json({ error: "RD Key required" });
 
-    const userId = generateUserId(rdKey);
-    const stats = await userService.getUserStats(userId);
+    try {
+        const userId = generateUserId(rdKey);
+        const stats = await userService.getUserStats(userId);
 
-    if (stats) {
-        // Calculate rank
-        const leaderboard = await userService.getLeaderboard(1000);
-        const rank = leaderboard.findIndex(u => u.userId === userId) + 1;
+        if (stats) {
+            // Calculate rank
+            const leaderboard = await userService.getLeaderboard(1000);
+            const rank = leaderboard.findIndex(u => u.userId === userId) + 1;
 
-        res.json({
-            ...stats,
-            userId: userId,
-            rank: rank > 0 ? rank : "-",
-            history: stats.watchHistory || [] // Explicitly return history
-        });
-    } else {
-        res.json({ userId: userId, segments: 0, votes: 0, rank: "-", history: [] });
+            // Resolve history metadata (Titles instead of pure IDs)
+            const omdbKey = process.env.OMDB_API_KEY;
+            const enrichedHistory = await Promise.all((stats.watchHistory || []).slice(0, 15).map(async (item) => {
+                const parts = item.videoId.split(':');
+                const imdbId = parts[0];
+                const season = parts[1];
+                const episode = parts[2];
+
+                let title = imdbId;
+                if (!global.metadataCache) global.metadataCache = {};
+
+                // Use cached title if available, otherwise just use ID for speed
+                if (global.metadataCache[imdbId]) {
+                    title = global.metadataCache[imdbId].Title;
+                } else if (omdbKey) {
+                    // Quick fetch (fire and forget for next time if we want, but let's try await for now)
+                    try {
+                        const data = await fetchOMDbData(imdbId, omdbKey);
+                        if (data && data.Title) {
+                            global.metadataCache[imdbId] = data;
+                            title = data.Title;
+                        }
+                    } catch (e) { }
+                }
+
+                return {
+                    ...item,
+                    title: season && episode ? `${title} S${season}E${episode}` : title
+                };
+            }));
+
+            res.json({
+                ...stats,
+                userId: userId,
+                rank: rank > 0 ? rank : "-",
+                history: enrichedHistory
+            });
+        } else {
+            res.json({ userId: userId, segments: 0, votes: 0, rank: "-", history: [] });
+        }
+    } catch (e) {
+        console.error("Personal Stats error:", e);
+        res.status(500).json({ error: "Internal server error" });
     }
 });
 

@@ -307,7 +307,7 @@
 
                         row.innerHTML = `
                             <div>
-                                <div style="font-weight: 600;">${item.videoId}</div>
+                                <div style="font-weight: 600;">${item.title || item.videoId}</div>
                                 <div style="font-size: 0.8rem; color: var(--text-muted);">${new Date(item.timestamp).toLocaleString()}</div>
                             </div>
                             <div style="display: flex; gap: 10px;">
