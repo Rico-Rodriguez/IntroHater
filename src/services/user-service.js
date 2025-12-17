@@ -125,6 +125,9 @@ async function updateUserStats(userId, updates) {
         if (videoId && !stats.votedVideos.includes(videoId)) {
             stats.votes = (stats.votes || 0) + updates.votes;
             stats.votedVideos.push(videoId);
+            console.log(`[Users] Vote added for ${userId.substr(0, 6)}... on ${videoId}`);
+        } else if (videoId) {
+            console.log(`[Users] Vote already registered for ${userId.substr(0, 6)}... on ${videoId}`);
         } else if (!videoId) {
             // Fallback for non-video votes
             stats.votes = (stats.votes || 0) + updates.votes;
