@@ -40,6 +40,17 @@ function generateUserId(rdKey) {
     return crypto.createHash('md5').update(rdKey).digest('hex');
 }
 
+// Helper: Fetch OMDb Data
+async function fetchOMDbData(imdbId, apiKey) {
+    try {
+        const url = `https://www.omdbapi.com/?i=${imdbId}&apikey=${apiKey}`;
+        const res = await axios.get(url);
+        return res.data;
+    } catch (e) {
+        return null;
+    }
+}
+
 // Configuration
 const PORT = process.env.PORT || 7005;
 const PUBLIC_URL = process.env.PUBLIC_URL || `http://127.0.0.1:${PORT}`;
