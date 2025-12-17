@@ -102,23 +102,20 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
         if (!stream.url) return;
 
         const encodedUrl = encodeURIComponent(stream.url);
+        const userId = generateUserId(rdKey);
 
-        // 1. Smart Skip Stream (The Main Experience)
-        if (skipSeg) {
-            const userId = generateUserId(rdKey);
-            const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}&id=${id}&user=${userId}`;
+        // Pass 0,0 if no skip found - the manifest handler will handle it.
+        const start = skipSeg ? skipSeg.start : 0;
+        const end = skipSeg ? skipSeg.end : 0;
 
-            modifiedStreams.push({
-                ...stream,
-                url: proxyUrl,
-                title: `🚀 [IntroHater] ${stream.title || stream.name}`,
-                behaviorHints: { notWebReady: false }
-            });
-        } else {
-            // No skip found - just pass through or maybe offer "Create"? 
-            // For Lite, we just pass through.
-            modifiedStreams.push(stream);
-        }
+        const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodedUrl}&start=${start}&end=${end}&id=${id}&user=${userId}`;
+
+        modifiedStreams.push({
+            ...stream,
+            url: proxyUrl,
+            title: `🚀 [IntroHater] ${stream.title || stream.name}`,
+            behaviorHints: { notWebReady: false }
+        });
     });
 
     return { streams: modifiedStreams };

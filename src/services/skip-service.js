@@ -64,7 +64,13 @@ async function saveSkips() {
 async function getSegments(fullId) {
     if (useMongo) {
         const doc = await skipsCollection.findOne({ fullId });
-        return doc ? doc.segments : [];
+        if (doc) {
+            console.log(`[SkipService] Found ${doc.segments.length} segments in Mongo for ${fullId}`);
+            return doc.segments;
+        } else {
+            console.log(`[SkipService] No segments found in Mongo for ${fullId}`);
+            return [];
+        }
     }
     return skipsData[fullId] || [];
 }
