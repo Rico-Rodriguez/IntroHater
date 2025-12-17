@@ -89,7 +89,6 @@ async function fetchStats() {
 
         animateValue('stat-users', data.users);
         animateValue('stat-skips', data.skips);
-        animateValue('stat-segments', data.segments);
         animateValue('stat-votes', data.votes);
 
     } catch (e) {
