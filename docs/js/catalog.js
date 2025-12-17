@@ -16,37 +16,15 @@ async function fetchCatalog() {
     }
 }
 
-function formatEpisodesList(episodes) {
-    if (!episodes || Object.keys(episodes).length === 0) return '';
-
-    const sortedEpisodes = Object.entries(episodes)
-        .map(([, ep]) => ({
-            season: ep.season,
-            episode: ep.episode
-        }))
-        .sort((a, b) => a.season - b.season || a.episode - b.episode);
-
-    return sortedEpisodes.map(ep =>
-        `<span>S${ep.season.toString().padStart(2, '0')}E${ep.episode.toString().padStart(2, '0')}</span>`
-    ).join('');
-}
-
 async function initializeCatalog() {
     const catalog = await fetchCatalog();
     const table = document.getElementById('catalogTable');
     if (!table) return;
 
-    if (!catalog?.media || Object.keys(catalog.media).length === 0) {
-        let tbody = table.querySelector('tbody');
-        if (!tbody) {
-            tbody = document.createElement('tbody');
-            table.appendChild(tbody);
-        }
-        tbody.innerHTML = '<tr><td colspan="4" style="text-align: center; padding: 40px;">No entries found</td></tr>';
-        return;
-    }
+    // Use built-in DataTables empty state handling
+    const mediaEntries = catalog?.media ? Object.entries(catalog.media) : [];
 
-    const tableData = Object.entries(catalog.media).map(([, media]) => [
+    const tableData = mediaEntries.map(([, media]) => [
         media.title,
         media.year,
         media.type === 'show' ? 'TV Show' : 'Movie',
@@ -135,8 +113,8 @@ async function initializeCatalog() {
         modal.style.display = 'none';
     }
 
-    closeBtn.onclick = closeModal;
-    closeBtn2.onclick = closeModal;
+    if (closeBtn) closeBtn.onclick = closeModal;
+    if (closeBtn2) closeBtn2.onclick = closeModal;
     window.onclick = function (event) {
         if (event.target == modal) {
             closeModal();
