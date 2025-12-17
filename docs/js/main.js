@@ -12,9 +12,38 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // Mobile Menu Toggle (if we add one later)
-    // const menuBtn = document.querySelector('.menu-btn');
-    // const navLinks = document.querySelector('.nav-links');
+    // Mobile Menu Toggle
+    const headerEl = document.querySelector('header');
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'menu-toggle';
+    menuBtn.innerHTML = '<span></span><span></span><span></span>';
+
+    // Insert menu toggle into the container
+    const headerContainer = document.querySelector('header .container');
+    if (headerContainer) {
+        headerContainer.appendChild(menuBtn);
+    }
+
+    menuBtn.addEventListener('click', () => {
+        headerEl.classList.toggle('header-active');
+        document.body.style.overflow = headerEl.classList.contains('header-active') ? 'hidden' : '';
+    });
+
+    // Close menu when clicking links
+    document.querySelectorAll('.nav-links a').forEach(link => {
+        link.addEventListener('click', () => {
+            headerEl.classList.remove('header-active');
+            document.body.style.overflow = '';
+        });
+    });
+
+    // Close menu when clicking outside
+    document.addEventListener('click', (e) => {
+        if (headerEl.classList.contains('header-active') && !headerEl.contains(e.target) && !menuBtn.contains(e.target)) {
+            headerEl.classList.remove('header-active');
+            document.body.style.overflow = '';
+        }
+    });
 
     // Intersection Observer for fade-in animations
     const observerOptions = {
