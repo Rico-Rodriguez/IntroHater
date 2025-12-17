@@ -106,13 +106,30 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
         // 1. Smart Skip Stream (The Main Experience)
         if (skipSeg) {
             const userId = generateUserId(rdKey);
-            const proxyUrl = `${baseUrl}/hls/master.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}&id=${id}&user=${userId}`;
+            const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`;
 
             modifiedStreams.push({
                 ...stream,
                 url: proxyUrl,
                 title: `[IntroHater] ${stream.title || stream.name}`,
-                behaviorHints: { notWebReady: false }
+                behaviorHints: { notWebReady: false },
+                subtitles: [
+                    {
+                        id: 'ih_status',
+                        url: `${baseUrl}/sub/status/${id}.vtt`,
+                        lang: 'ℹ️ Status'
+                    },
+                    {
+                        id: 'ih_up',
+                        url: `${baseUrl}/sub/vote/up/${id}.vtt?user=${userId}`,
+                        lang: '👍 Upvote Skip'
+                    },
+                    {
+                        id: 'ih_down',
+                        url: `${baseUrl}/sub/vote/down/${id}.vtt?user=${userId}`,
+                        lang: '⚠️ Report Issue'
+                    }
+                ]
             });
         } else {
             // No skip found - just pass through or maybe offer "Create"? 
@@ -518,9 +535,9 @@ app.get('/sub/vote/:action/:videoId.vtt', (req, res) => {
     const message = action === 'up' ? "✅ Vote Registered!" : "⚠️ Skip Reported";
     const vtt = `WEBVTT
 
-00:00:00.000 --> 02:00:00.000
+00:00:00.000 --> 01:00:00.000
 ${message}
-(Thank you for contributing!)
+(You can now switch back to your regular subtitles)
 `;
 
     res.set('Content-Type', 'text/vtt');
