@@ -195,8 +195,8 @@ app.get(['/:config/stream/:type/:id.json', '/stream/:type/:id.json'], async (req
 });
 
 // 2. API: Leaderboard
-app.get('/api/leaderboard', (req, res) => {
-    const board = userService.getLeaderboard(20);
+app.get('/api/leaderboard', async (req, res) => {
+    const board = await userService.getLeaderboard(20);
     res.json(board.map((u, i) => ({
         rank: i + 1,
         userId: u.userId,
@@ -206,8 +206,8 @@ app.get('/api/leaderboard', (req, res) => {
 });
 
 // 2.5 API: Stats
-app.get('/api/stats', (req, res) => {
-    const { userCount, voteCount } = userService.getStats();
+app.get('/api/stats', async (req, res) => {
+    const { userCount, voteCount } = await userService.getStats();
     // Get total skips from all segments
     const allSkips = getAllSegments();
     const skipCount = Object.values(allSkips).flat().length;
@@ -221,16 +221,16 @@ app.get('/api/stats', (req, res) => {
 
 // 2.6 API: Personal Stats (Protected by RD Key)
 app.use(express.json()); // Enable JSON body parsing for this endpoint
-app.post('/api/stats/personal', (req, res) => {
+app.post('/api/stats/personal', async (req, res) => {
     const { rdKey } = req.body;
     if (!rdKey) return res.status(400).json({ error: "RD Key required" });
 
     const userId = generateUserId(rdKey);
-    const stats = userService.getUserStats(userId);
+    const stats = await userService.getUserStats(userId);
 
     if (stats) {
         // Calculate rank
-        const leaderboard = userService.getLeaderboard(1000);
+        const leaderboard = await userService.getLeaderboard(1000);
         const rank = leaderboard.findIndex(u => u.userId === userId) + 1;
 
         res.json({

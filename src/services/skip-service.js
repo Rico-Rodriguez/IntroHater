@@ -1,51 +1,97 @@
-const fs = require('fs');
+const fs = require('fs').promises;
 const path = require('path');
+const mongoService = require('./mongodb');
+const axios = require('axios');
 
-let skips = {};
-try {
-    const dataPath = path.join(__dirname, '../data/skips.json');
-    if (fs.existsSync(dataPath)) {
-        skips = JSON.parse(fs.readFileSync(dataPath, 'utf8'));
-        console.log(`[SkipService] Loaded ${Object.keys(skips).length} shows from local DB.`);
+const DATA_FILE = path.join(__dirname, '../data/skips.json');
+
+// In-memory cache (Fallback)
+let skipsData = {}; // Format: { "imdb:s:e": [ { start, end, label, votes } ] }
+
+// Persistence State
+let useMongo = false;
+let skipsCollection = null;
+const MAL_CACHE = {}; // Cache for Aniskip Mapping
+
+// Initialize
+(async () => {
+    try {
+        skipsCollection = await mongoService.getCollection('skips');
+
+        if (skipsCollection) {
+            useMongo = true;
+            console.log('[SkipService] Using MongoDB for persistence.');
+            // Index by fullId to quick lookups
+            // MongoDB Structure: { fullId: "tt:s:e", segments: [...] }
+            await skipsCollection.createIndex({ fullId: 1 }, { unique: true });
+        } else {
+            console.log('[SkipService] MongoDB not available. Using local JSON file (Ephemeral on Render).');
+            await loadSkips();
+        }
+    } catch (e) {
+        console.error("[SkipService] Init Error:", e);
+        await loadSkips();
     }
-} catch (e) {
-    console.error(`[SkipService] Failed to load skips: ${e.message}`);
-}
+})();
 
-function getSkipSegment(fullId) {
-    // fullId example: tt0944947:2:2
-    const segments = skips[fullId];
-    if (segments && segments.length > 0) {
-        // Find intro
-        const intro = segments.find(s => s.label === 'Intro' || s.label === 'OP');
-        if (intro) {
-            console.log(`[SkipService] Found skip for ${fullId}: ${intro.start}-${intro.end}s`);
-            return {
-                start: intro.start,
-                end: intro.end
-            };
+async function loadSkips() {
+    try {
+        const data = await fs.readFile(DATA_FILE, 'utf8');
+        skipsData = JSON.parse(data);
+        console.log(`[SkipService] Loaded ${Object.keys(skipsData).length} shows from local DB.`);
+    } catch (error) {
+        if (error.code === 'ENOENT') {
+            skipsData = {};
+        } else {
+            console.error('[SkipService] Error loading data:', error);
         }
     }
-    return null;
+}
+
+async function saveSkips() {
+    try {
+        const dir = path.dirname(DATA_FILE);
+        await fs.mkdir(dir, { recursive: true });
+        await fs.writeFile(DATA_FILE, JSON.stringify(skipsData, null, 4));
+    } catch (error) {
+        console.error('[SkipService] Error saving data:', error);
+    }
+}
+
+// --- Helpers ---
+
+// Get all segments for a specific video ID
+async function getSegments(fullId) {
+    if (useMongo) {
+        const doc = await skipsCollection.findOne({ fullId });
+        return doc ? doc.segments : [];
+    }
+    return skipsData[fullId] || [];
+}
+
+// Get all skips (Heavy operation - used for catalog)
+async function getAllSegments() {
+    if (useMongo) {
+        // Return object map key->segments to match original API
+        const allDocs = await skipsCollection.find({}).toArray();
+        const map = {};
+        allDocs.forEach(d => map[d.fullId] = d.segments);
+        return map;
+    }
+    return skipsData;
 }
 
 // --- Aniskip Integration ---
-const axios = require('axios');
-const MAL_CACHE = {};
 
 async function getMalId(imdbId) {
     if (MAL_CACHE[imdbId]) return MAL_CACHE[imdbId];
 
     try {
-        // 1. Get Name from Cinemeta
         const metaRes = await axios.get(`https://v3-cinemeta.strem.io/meta/series/${imdbId}.json`);
         const name = metaRes.data?.meta?.name;
         if (!name) return null;
 
         console.log(`[SkipService] Searching MAL ID for "${name}"...`);
-
-        // 2. Search Jikan (Anime DB)
-        // We use a small delay or retry if rate limited, but for now simple fetch
         const jikanRes = await axios.get(`https://api.jikan.moe/v4/anime?q=${encodeURIComponent(name)}&type=tv&limit=1`);
 
         if (jikanRes.data?.data?.[0]?.mal_id) {
@@ -70,57 +116,76 @@ async function fetchAniskip(malId, episode) {
                 return {
                     start: op.interval.startTime,
                     end: op.interval.endTime,
-                    label: 'Intro'
+                    label: 'Intro',
+                    source: 'aniskip'
                 };
             }
         }
-    } catch (e) {
-        // console.error(`[SkipService] Aniskip failed: ${e.message}`);
-    }
+    } catch (e) { }
     return null;
 }
 
-// Async Wrapper for Main Logic
-async function getSkipSegmentAsync(fullId) {
-    // 1. Check Local DB First
-    const local = getSkipSegment(fullId);
-    if (local) return local;
 
-    // 2. Parsed ID
+// --- Main Lookup Logic ---
+
+async function getSkipSegment(fullId) {
+    // 1. Check DB (Local or Mongo)
+    const segments = await getSegments(fullId);
+    if (segments && segments.length > 0) {
+        // Find best intro
+        const intro = segments.find(s => s.label === 'Intro' || s.label === 'OP');
+        if (intro) {
+            return { start: intro.start, end: intro.end };
+        }
+    }
+
+    // 2. Parsed ID Check for Aniskip fallback
     const parts = fullId.split(':');
-    if (parts.length < 3) return null; // Not a series or invalid
+    if (parts.length >= 3) {
+        const imdbId = parts[0];
+        const episode = parseInt(parts[2]);
 
-    const imdbId = parts[0];
-    const episode = parseInt(parts[2]);
-
-    // 3. Try Aniskip
-    const malId = await getMalId(imdbId);
-    if (malId) {
-        const aniSkip = await fetchAniskip(malId, episode);
-        if (aniSkip) {
-            console.log(`[SkipService] Found Aniskip for ${fullId}: ${aniSkip.start}-${aniSkip.end}`);
-            return aniSkip;
+        // 3. Try Aniskip
+        const malId = await getMalId(imdbId);
+        if (malId) {
+            const aniSkip = await fetchAniskip(malId, episode);
+            if (aniSkip) {
+                console.log(`[SkipService] Found Aniskip for ${fullId}: ${aniSkip.start}-${aniSkip.end}`);
+                return aniSkip; // Don't save to DB yet to keep DB clean, just returning it dynamically
+            }
         }
     }
 
     return null;
 }
 
-// Export the async version as the primary one for server_lite
+// --- Write Operations (Crowdsourcing) ---
 
-// Restored Helpers
-function getSegments(streamId) {
-    return skips[streamId] || [];
+async function addSkipSegment(fullId, start, end, label = "Intro", userId = "anonymous") {
+    const newSegment = {
+        start, end, label,
+        votes: 1,
+        contributors: [userId],
+        createdAt: new Date().toISOString()
+    };
+
+    if (useMongo) {
+        await skipsCollection.updateOne(
+            { fullId },
+            { $push: { segments: newSegment } },
+            { upsert: true }
+        );
+    } else {
+        if (!skipsData[fullId]) skipsData[fullId] = [];
+        skipsData[fullId].push(newSegment);
+        await saveSkips();
+    }
+    return newSegment;
 }
 
-function getAllSegments() {
-    return skips;
-}
-
-// Export the async version as the primary one for server_lite
 module.exports = {
-    getSkipSegment: getSkipSegmentAsync, // Replacing the sync export with async
-    getLocalSkipSegment: getSkipSegment, // Keep sync for reference if needed
+    getSkipSegment,
     getSegments,
-    getAllSegments
+    getAllSegments,
+    addSkipSegment
 };
