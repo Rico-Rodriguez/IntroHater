@@ -8,6 +8,11 @@ const DATA_FILE = path.join(__dirname, '../data/skips.json');
 // In-memory cache (Fallback)
 let skipsData = {}; // Format: { "imdb:s:e": [ { start, end, label, votes } ] }
 
+// Persistence State
+let useMongo = false;
+let skipsCollection = null;
+const MAL_CACHE = {}; // Cache for Aniskip Mapping
+
 // Initialize
 let initPromise = null;
 
@@ -74,13 +79,25 @@ async function getSegments(fullId) {
     if (useMongo && skipsCollection) {
         try {
             const cleanId = String(fullId).trim();
-            const doc = await skipsCollection.findOne({ fullId: cleanId });
+            // 1. Try Exact Match
+            let doc = await skipsCollection.findOne({ fullId: cleanId });
+
+            // 2. Try Case-Insensitive Match (Regex)
+            if (!doc) {
+                doc = await skipsCollection.findOne({
+                    fullId: { $regex: `^${cleanId}$`, $options: 'i' }
+                });
+            }
 
             if (doc) {
                 console.log(`[SkipService] Found ${doc.segments.length} segments in Mongo for [${cleanId}]`);
                 return doc.segments;
             } else {
                 console.log(`[SkipService] No segments found in Mongo for [${cleanId}]`);
+                // Debug: list some keys to see format
+                const samples = await skipsCollection.find({}).limit(5).toArray();
+                const sampleKeys = samples.map(s => s.fullId);
+                console.log(`[SkipService] DB Key Samples: ${JSON.stringify(sampleKeys)}`);
                 return [];
             }
         } catch (e) {
