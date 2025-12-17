@@ -50,7 +50,7 @@ const manifest = {
     version: "1.0.0",
     name: "IntroHater Lite",
     description: "Universal Skip Intro for Stremio (TV/Mobile/PC)",
-    resources: ["stream"],
+    resources: ["stream", "subtitles"],
     types: ["movie", "series", "anime"],
     catalogs: [],
     behaviorHints: {
@@ -105,31 +105,13 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
 
         // 1. Smart Skip Stream (The Main Experience)
         if (skipSeg) {
-            const userId = generateUserId(rdKey);
             const proxyUrl = `${baseUrl}/hls/manifest.m3u8?stream=${encodedUrl}&start=${skipSeg.start}&end=${skipSeg.end}`;
 
             modifiedStreams.push({
                 ...stream,
                 url: proxyUrl,
                 title: `[IntroHater] ${stream.title || stream.name}`,
-                behaviorHints: { notWebReady: false },
-                subtitles: [
-                    {
-                        id: 'ih_status',
-                        url: `${baseUrl}/sub/status/${id}.vtt`,
-                        lang: 'ℹ️ Status'
-                    },
-                    {
-                        id: 'ih_up',
-                        url: `${baseUrl}/sub/vote/up/${id}.vtt?user=${userId}`,
-                        lang: '👍 Upvote Skip'
-                    },
-                    {
-                        id: 'ih_down',
-                        url: `${baseUrl}/sub/vote/down/${id}.vtt?user=${userId}`,
-                        lang: '⚠️ Report Issue'
-                    }
-                ]
+                behaviorHints: { notWebReady: false }
             });
         } else {
             // No skip found - just pass through or maybe offer "Create"? 
@@ -243,6 +225,45 @@ app.post('/api/stats/personal', async (req, res) => {
     } else {
         res.json({ userId: userId, segments: 0, votes: 0, rank: "-" });
     }
+});
+
+// 2.7 API: Subtitles Resource (The Voting Buttons)
+// Responds to /subtitles/:type/:id.json
+app.get(['/:config/subtitles/:type/:id.json', '/subtitles/:type/:id.json'], async (req, res) => {
+    const { config, type, id } = req.params;
+    const cleanId = id.replace('.json', '');
+    const rdKey = config || process.env.RPDB_KEY;
+    const userId = generateUserId(rdKey);
+
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+
+    // Only provide voting tracks if we have a skip for this video
+    const skipSeg = await getSkipSegment(cleanId);
+    if (!skipSeg) {
+        return res.json({ subtitles: [] });
+    }
+
+    res.json({
+        subtitles: [
+            {
+                id: `ih_status_${cleanId}`,
+                url: `${baseUrl}/sub/status/${cleanId}.vtt`,
+                lang: 'ℹ️ Status'
+            },
+            {
+                id: `ih_up_${cleanId}`,
+                url: `${baseUrl}/sub/vote/up/${cleanId}.vtt?user=${userId}`,
+                lang: '👍 Upvote Skip'
+            },
+            {
+                id: `ih_down_${cleanId}`,
+                url: `${baseUrl}/sub/vote/down/${cleanId}.vtt?user=${userId}`,
+                lang: '⚠️ Report Issue'
+            }
+        ]
+    });
 });
 
 // 3. API: Catalog (Built from Skips)
