@@ -141,7 +141,7 @@
                 return `
                 <tr>
                     <td style="text-align: center; font-weight: 700; font-size: 1.2rem;" class="${rankClass}">#${index + 1}</td>
-                    <td><span class="user-cell">${user.userId || 'Unknown'}</span></td>
+                    <td><span class="user-cell" title="${user.userId}">${(user.userId || 'Unknown').substring(0, 8)}</span></td>
                     <td style="text-align: right; font-weight: 600;">${(user.segments || 0).toLocaleString()}</td>
                     <td style="text-align: right; font-weight: 600;">${(user.votes || 0).toLocaleString()}</td>
                 </tr>
