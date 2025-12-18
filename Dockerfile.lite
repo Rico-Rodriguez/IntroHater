@@ -18,6 +18,10 @@ RUN npm install
 COPY server_lite.js .
 COPY src ./src
 COPY docs ./docs
+COPY tests ./tests
+
+# Run tests
+RUN npm test
 
 # Ensure data directory exists
 RUN mkdir -p src/data
