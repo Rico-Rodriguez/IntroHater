@@ -16,30 +16,17 @@ async function fetchCatalog() {
 }
 
 async function initializeCatalog() {
-    const catalog = await fetchCatalog();
     const table = document.getElementById('catalogTable');
     if (!table) return;
 
-    // Use built-in DataTables empty state handling
-    const mediaEntries = catalog?.media ? Object.entries(catalog.media) : [];
-
-    const tableData = mediaEntries.map(([, media]) => [
-        media.title,
-        media.year,
-        media.type === 'show' ? 'TV Show' : 'Movie',
-        media.type === 'show' ? media.episodes : null,
-        `<span class="segment-count">${media.totalSegments} segment${media.totalSegments !== 1 ? 's' : ''}</span>`
-    ]);
-
-    // Initialize DataTable with window.jQuery to ensure $ is defined
-    window.jQuery('#catalogTable').DataTable({
-        data: tableData,
+    // Initialize DataTable immediately with empty data and loading state
+    const dt = window.jQuery('#catalogTable').DataTable({
+        data: [],
         responsive: {
             details: {
                 type: 'column',
                 target: 'tr',
                 renderer: function (api, rowIdx, columns) {
-                    // Only show hidden columns in the responsive view
                     const hiddenColumns = columns.filter(col => !col.visible);
                     if (!hiddenColumns.length) return false;
 
@@ -53,8 +40,12 @@ async function initializeCatalog() {
                 }
             }
         },
-        order: [[0, 'asc']], // Sort by title by default
+        order: [[0, 'asc']],
         pageLength: 25,
+        language: {
+            emptyTable: "Loading catalog items... please wait.",
+            processing: '<div class="spinner"></div>'
+        },
         columns: [
             {
                 title: 'Title',
@@ -67,27 +58,24 @@ async function initializeCatalog() {
             },
             {
                 title: 'Year',
-                className: 'min-tablet' // Hide on mobile, show on tablet and up
+                className: 'min-tablet'
             },
             { title: 'Type' },
             {
                 title: 'Segments',
-                className: 'min-tablet text-right', // Align right like leaderboard numbers
+                className: 'min-tablet text-right',
                 render: function (data, type, row) {
                     if (type === 'display') {
                         const totalSegments = row[4];
 
                         if (row[2] === 'TV Show' && row[3]) {
                             const episodesData = JSON.stringify(row[3]).replace(/"/g, '&quot;');
-                            const episodeCount = Object.keys(row[3]).length;
-                            // Simple 'View' button
                             return `<button class="btn btn-secondary episode-btn" 
                                     data-title="${row[0]}" 
                                     data-episodes='${episodesData}'>
                                     View
                                    </button>`;
                         } else {
-                            // Just the number, aligned right
                             return `<span class="text-muted font-weight-bold">${totalSegments}</span>`;
                         }
                     }
@@ -96,10 +84,30 @@ async function initializeCatalog() {
             }
         ],
         drawCallback: function () {
-            // Re-attach listeners is handled by global delegation or re-query
             document.querySelectorAll('.episode-btn').forEach(btn => {
                 btn.addEventListener('click', openEpisodeModal);
             });
+        }
+    });
+
+    // Fetch and update data
+    fetchCatalog().then(catalog => {
+        const mediaEntries = catalog?.media ? Object.entries(catalog.media) : [];
+        const tableData = mediaEntries.map(([, media]) => [
+            media.title,
+            media.year,
+            media.type === 'show' ? 'TV Show' : 'Movie',
+            media.type === 'show' ? media.episodes : null,
+            `<span class="segment-count">${media.totalSegments} segment${media.totalSegments !== 1 ? 's' : ''}</span>`
+        ]);
+
+        dt.clear();
+        dt.rows.add(tableData);
+        dt.draw();
+
+        if (tableData.length === 0) {
+            dt.settings()[0].oLanguage.sEmptyTable = "No entries found in the catalog.";
+            dt.draw();
         }
     });
 

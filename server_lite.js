@@ -40,9 +40,32 @@ function generateUserId(rdKey) {
     return crypto.createHash('md5').update(rdKey).digest('hex');
 }
 
+// Helper: Persistent Metadata Cache
+const METADATA_CACHE_FILE = path.join(__dirname, 'data', 'metadata_cache.json');
+global.metadataCache = {};
+
+async function loadMetadataCache() {
+    try {
+        const data = await fs.readFile(METADATA_CACHE_FILE, 'utf8');
+        global.metadataCache = JSON.parse(data);
+        console.log(`[Cache] Loaded ${Object.keys(global.metadataCache).length} items from persistent cache.`);
+    } catch (e) {
+        console.log("[Cache] Starting with empty metadata cache.");
+    }
+}
+
+async function saveMetadataCache() {
+    try {
+        const dir = path.dirname(METADATA_CACHE_FILE);
+        await fs.mkdir(dir, { recursive: true });
+        await fs.writeFile(METADATA_CACHE_FILE, JSON.stringify(global.metadataCache, null, 2));
+    } catch (e) {
+        console.error("[Cache] Failed to save metadata cache:", e.message);
+    }
+}
+
 // Helper: Fetch OMDb Data with Caching
 async function fetchOMDbData(imdbId, apiKey) {
-    if (!global.metadataCache) global.metadataCache = {};
     if (global.metadataCache[imdbId]) return global.metadataCache[imdbId];
 
     try {
@@ -51,6 +74,7 @@ async function fetchOMDbData(imdbId, apiKey) {
         if (res.data && res.data.Response === 'True') {
             global.metadataCache[imdbId] = res.data;
             console.log(`[OMDB] Fetched metadata for ${imdbId}: ${res.data.Title}`);
+            saveMetadataCache(); // Persistent save
             return res.data;
         }
     } catch (e) {
@@ -663,8 +687,10 @@ app.get('/vote/:action/:videoId', (req, res) => {
 // app.use('/', addonRouter); // DEPRECATED
 
 if (require.main === module) {
-    app.listen(PORT, () => {
-        console.log(`IntroHater Lite running on ${PUBLIC_URL}`);
+    loadMetadataCache().then(() => {
+        app.listen(PORT, () => {
+            console.log(`IntroHater Lite running on ${PORT} (${PUBLIC_URL})`);
+        });
     });
 }
 
