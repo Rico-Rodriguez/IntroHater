@@ -12,6 +12,7 @@ let skipsData = {}; // Format: { "imdb:s:e": [ { start, end, label, votes } ] }
 let useMongo = false;
 let skipsCollection = null;
 const MAL_CACHE = {}; // Cache for Aniskip Mapping
+const SKIP_CACHE = {}; // Cache for Aniskip Results
 
 // Initialize
 let initPromise = null;
@@ -95,10 +96,6 @@ async function getSegments(fullId) {
                 return doc.segments;
             } else {
                 console.log(`[SkipService] No segments found in Mongo for [${cleanId}]`);
-                // Debug: list some keys to see format
-                const samples = await skipsCollection.find({}).limit(5).toArray();
-                const sampleKeys = samples.map(s => s.fullId);
-                console.log(`[SkipService] DB Key Samples: ${JSON.stringify(sampleKeys)}`);
                 return [];
             }
         } catch (e) {
@@ -147,21 +144,31 @@ async function getMalId(imdbId) {
 }
 
 async function fetchAniskip(malId, episode) {
+    const cacheKey = `${malId}:${episode}`;
+    if (SKIP_CACHE[cacheKey]) return SKIP_CACHE[cacheKey];
+
     try {
         const url = `https://api.aniskip.com/v2/skip-times/${malId}/${episode}?types[]=op&types[]=ed&episodeLength=0`;
         const res = await axios.get(url);
         if (res.data.found && res.data.results) {
             const op = res.data.results.find(r => r.skipType === 'op');
             if (op && op.interval) {
-                return {
+                const result = {
                     start: op.interval.startTime,
                     end: op.interval.endTime,
                     label: 'Intro',
                     source: 'aniskip'
                 };
+                SKIP_CACHE[cacheKey] = result;
+                return result;
             }
         }
     } catch (e) { }
+
+    // Cache negative result briefly or just return null (if we cache null, we might miss retry if network fails, 
+    // but for now let's just cache success to be safe, or we can cache null too if we want to be strict)
+    // Let's cache null to stop hammering for 404s
+    SKIP_CACHE[cacheKey] = null;
     return null;
 }
 

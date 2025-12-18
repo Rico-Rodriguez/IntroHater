@@ -40,15 +40,23 @@ function generateUserId(rdKey) {
     return crypto.createHash('md5').update(rdKey).digest('hex');
 }
 
-// Helper: Fetch OMDb Data
+// Helper: Fetch OMDb Data with Caching
 async function fetchOMDbData(imdbId, apiKey) {
+    if (!global.metadataCache) global.metadataCache = {};
+    if (global.metadataCache[imdbId]) return global.metadataCache[imdbId];
+
     try {
         const url = `https://www.omdbapi.com/?i=${imdbId}&apikey=${apiKey}`;
         const res = await axios.get(url);
-        return res.data;
+        if (res.data && res.data.Response === 'True') {
+            global.metadataCache[imdbId] = res.data;
+            console.log(`[OMDB] Fetched metadata for ${imdbId}: ${res.data.Title}`);
+            return res.data;
+        }
     } catch (e) {
         return null;
     }
+    return null;
 }
 
 // Configuration
@@ -441,19 +449,7 @@ app.get('/api/catalog', async (req, res) => {
     res.json(catalog);
 });
 
-async function fetchOMDbData(imdbId, apiKey) {
-    try {
-        const url = `https://www.omdbapi.com/?i=${imdbId}&apikey=${apiKey}`;
-        const response = await axios.get(url);
-        if (response.data && response.data.Response === 'True') {
-            console.log(`[OMDB] Fetched metadata for ${imdbId}: ${response.data.Title}`);
-            return response.data;
-        }
-    } catch (e) {
-        // Silent fail
-    }
-    return null;
-}
+
 
 // 4. API: Get Segments
 app.get('/api/segments/:videoId', (req, res) => {
@@ -535,7 +531,7 @@ app.get('/hls/manifest.m3u8', async (req, res) => {
         // Cache Key
         const cacheKey = `${streamUrl}_${introStart}_${introEnd}`;
         if (manifestCache.has(cacheKey)) {
-            console.log(`[HLS] Serving cached manifest for ${introStart}s - ${introEnd}s`);
+            // console.log(`[HLS] Serving cached manifest for ${introStart}s - ${introEnd}s`);
             res.set('Content-Type', 'application/vnd.apple.mpegurl');
             return res.send(manifestCache.get(cacheKey));
         }
@@ -666,6 +662,10 @@ app.get('/vote/:action/:videoId', (req, res) => {
 // Serve Addon - Handled by custom routes above
 // app.use('/', addonRouter); // DEPRECATED
 
-app.listen(PORT, () => {
-    console.log(`IntroHater Lite running on ${PUBLIC_URL}`);
-});
+if (require.main === module) {
+    app.listen(PORT, () => {
+        console.log(`IntroHater Lite running on ${PUBLIC_URL}`);
+    });
+}
+
+module.exports = app;
