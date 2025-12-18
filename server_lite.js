@@ -238,14 +238,32 @@ app.get('/api/stats', async (req, res) => {
     const allSkips = await getAllSegments();
     const localSegmentCount = Object.values(allSkips).flat().length;
 
-    // Ani-Skip Estimate (approximate based on their catalog size)
+    // Ani-Skip Estimate (Educated guess based on community data)
     const ANISKIP_ESTIMATE = 145000;
+
+    // Anime-Skip Live Stats
+    let animeSkipCount = 0;
+    try {
+        const query = `query { counts { timestamps } }`;
+        const asRes = await axios.post('https://api.anime-skip.com/graphql',
+            { query },
+            { headers: { 'X-Client-ID': 'th2oogUKrgOf1J8wMSIUPV0IpBMsLOJi' }, timeout: 2000 }
+        );
+        animeSkipCount = asRes.data?.data?.counts?.timestamps || 0;
+    } catch (e) {
+        console.warn("[Stats] Failed to fetch live Anime-Skip stats:", e.message);
+    }
 
     res.json({
         users: userCount,
-        skips: localSegmentCount + ANISKIP_ESTIMATE, // Total skips served (Combined)
+        skips: localSegmentCount + ANISKIP_ESTIMATE + animeSkipCount, // Total skips served (Combined)
         votes: voteCount,
-        segments: localSegmentCount // Local community segments
+        segments: localSegmentCount, // Local community segments
+        sources: {
+            local: localSegmentCount,
+            aniskip: ANISKIP_ESTIMATE,
+            animeSkip: animeSkipCount
+        }
     });
 });
 
