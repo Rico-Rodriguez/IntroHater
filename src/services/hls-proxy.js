@@ -238,6 +238,53 @@ async function getRefinedOffsets(url, startSec, endSec) {
     });
 }
 
+/**
+ * Extracts chapters from a remote video file using ffprobe.
+ */
+async function getChapters(url) {
+    return new Promise((resolve) => {
+        const args = [
+            '-show_chapters',
+            '-v', 'error',
+            '-of', 'json',
+            url
+        ];
+
+        console.log(`[HLS Proxy] Probing chapters for ${url}...`);
+        const proc = spawn(ffprobePath, args);
+
+        let stdout = '';
+        let stderr = '';
+
+        proc.stdout.on('data', (data) => stdout += data);
+        proc.stderr.on('data', (data) => stderr += data);
+
+        proc.on('close', (code) => {
+            if (code !== 0) {
+                console.warn(`[HLS Proxy] Chapter probe failed code ${code}. Stderr: ${stderr}`);
+                return resolve([]);
+            }
+
+            try {
+                const data = JSON.parse(stdout);
+                if (!data.chapters || data.chapters.length === 0) return resolve([]);
+
+                const chapters = data.chapters.map(c => ({
+                    startTime: parseFloat(c.start_time),
+                    endTime: parseFloat(c.end_time),
+                    title: c.tags ? (c.tags.title || c.tags.TITLE || 'Chapter') : 'Chapter'
+                }));
+
+                console.log(`[HLS Proxy] Found ${chapters.length} chapters.`);
+                resolve(chapters);
+            } catch (e) {
+                console.error(`[HLS Proxy] Chapter parse error: ${e.message}`);
+                resolve([]);
+            }
+        });
+    });
+}
+
 function generateSpliceManifest(videoUrl, duration, startOffset, endOffset, totalLength) {
     // Segment 1: 0 to startOffset
     // Segment 2: endOffset to End
@@ -270,5 +317,6 @@ module.exports = {
     getByteOffset,
     generateSmartManifest,
     getRefinedOffsets,
-    generateSpliceManifest
+    generateSpliceManifest,
+    getChapters
 };

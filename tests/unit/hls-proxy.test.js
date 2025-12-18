@@ -42,24 +42,47 @@ describe('HLS Proxy', () => {
         });
     });
 
-    // Note: getByteOffset uses spawn, which is harder to mock robustly in a unit test 
-    // without effectively testing the mock itself. We will skim it or mock basic output.
-    describe('getByteOffset (Mocked FFprobe)', () => {
-        it('should return 0 if ffprobe fails', async () => {
+    describe('getChapters (Mocked FFprobe)', () => {
+        it('should return chapters list on success', async () => {
             const mockProc = new EventEmitter();
             mockProc.stdout = new EventEmitter();
             mockProc.stderr = new EventEmitter();
             child_process.spawn.mockReturnValue(mockProc);
 
-            const promise = hlsProxy.getByteOffset('http://vid.mp4', 10);
+            const promise = hlsProxy.getChapters('http://vid.mp4');
 
-            // Emit fail
+            // Emit some mock chapter JSON
+            const mockOutput = JSON.stringify({
+                chapters: [
+                    { start_time: "0.0", end_time: "90.0", tags: { title: "Intro" } },
+                    { start_time: "90.0", end_time: "1200.0", tags: { title: "Episode" } }
+                ]
+            });
+
             setTimeout(() => {
-                mockProc.emit('close', 1); // code 1
+                mockProc.stdout.emit('data', mockOutput);
+                mockProc.emit('close', 0);
             }, 10);
 
             const result = await promise;
-            expect(result).toBe(0);
+            expect(result).toHaveLength(2);
+            expect(result[0]).toEqual({ startTime: 0, endTime: 90, title: "Intro" });
+        });
+
+        it('should return empty list if ffprobe errors', async () => {
+            const mockProc = new EventEmitter();
+            mockProc.stdout = new EventEmitter();
+            mockProc.stderr = new EventEmitter();
+            child_process.spawn.mockReturnValue(mockProc);
+
+            const promise = hlsProxy.getChapters('http://vid.mp4');
+
+            setTimeout(() => {
+                mockProc.emit('close', 1);
+            }, 10);
+
+            const result = await promise;
+            expect(result).toEqual([]);
         });
     });
 });

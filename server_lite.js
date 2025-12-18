@@ -3,8 +3,9 @@ const { addonBuilder, getRouter } = require("stremio-addon-sdk");
 const express = require('express');
 const cors = require('cors');
 const path = require('path');
-const { getByteOffset, generateSmartManifest, getStreamDetails, getRefinedOffsets, generateSpliceManifest } = require('./src/services/hls-proxy');
-const { getSkipSegment, getSegments, getAllSegments } = require('./src/services/skip-service');
+const { getByteOffset, generateSmartManifest, getStreamDetails, getRefinedOffsets, generateSpliceManifest, getChapters } = require('./src/services/hls-proxy');
+const skipService = require('./src/services/skip-service');
+const { getSkipSegment, getSegments, getAllSegments } = skipService;
 const userService = require('./src/services/user-service');
 const axios = require('axios');
 
@@ -575,9 +576,41 @@ app.get('/hls/manifest.m3u8', async (req, res) => {
         let manifest = "";
         let isSuccess = false;
 
+        // 1.5 Try Chapter Discovery if no skip segments provided
+        if ((!introStart || introStart === 0) && (!introEnd || introEnd === 0)) {
+            console.log(`[HLS] No skip segments for ${videoId}. Checking chapters...`);
+            const chapters = await getChapters(streamUrl);
+            const skipChapter = chapters.find(c => {
+                const t = c.title.toLowerCase();
+                return t.includes('intro') || t.includes('opening') || t === 'op';
+            });
+
+            if (skipChapter) {
+                console.log(`[HLS] Found intro chapter: ${skipChapter.title} (${skipChapter.startTime}-${skipChapter.endTime}s)`);
+
+                // Use these for the manifest
+                const cStart = skipChapter.startTime;
+                const cEnd = skipChapter.endTime;
+
+                // BACKFILL: Fire and forget submission to DB
+                if (videoId && userId) {
+                    console.log(`[HLS] Backfilling chapter data for ${videoId} as 'chapter-bot'`);
+                    skipService.addSkipSegment(videoId, cStart, cEnd, "Intro", "chapter-bot")
+                        .catch(e => console.error(`[HLS] Backfill failed: ${e.message}`));
+                }
+
+                // Proceed with splicing using these values
+                const points = await getRefinedOffsets(streamUrl, cStart, cEnd);
+                if (points) {
+                    manifest = generateSpliceManifest(streamUrl, 7200, points.startOffset, points.endOffset, totalLength);
+                    isSuccess = true;
+                }
+            }
+        }
+
         // 1. Get Offsets (Start & End)
         // If we have both, we try to splice
-        if (introStart > 0 && introEnd > introStart) {
+        if (!isSuccess && introStart > 0 && introEnd > introStart) {
             const points = await getRefinedOffsets(streamUrl, introStart, introEnd);
             if (points) {
                 console.log(`[HLS] Splicing at bytes: ${points.startOffset} -> ${points.endOffset}`);
