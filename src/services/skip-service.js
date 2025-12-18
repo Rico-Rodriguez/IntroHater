@@ -198,7 +198,11 @@ async function getSkipSegment(fullId) {
             const aniSkip = await fetchAniskip(malId, episode);
             if (aniSkip) {
                 console.log(`[SkipService] Found Aniskip for ${fullId}: ${aniSkip.start}-${aniSkip.end}`);
-                return aniSkip; // Don't save to DB yet to keep DB clean, just returning it dynamically
+                // Persist the segment (Fire and forget, don't await)
+                addSkipSegment(fullId, aniSkip.start, aniSkip.end, 'Intro', 'aniskip')
+                    .catch(e => console.error(`[SkipService] Failed to persist Aniskip segment: ${e.message}`));
+
+                return aniSkip;
             }
         }
     }
@@ -213,6 +217,7 @@ async function addSkipSegment(fullId, start, end, label = "Intro", userId = "ano
         start, end, label,
         votes: 1,
         verified: false, // All new submissions start unverified
+        source: userId === 'aniskip' ? 'aniskip' : 'user',
         reportCount: 0,
         contributors: [userId],
         createdAt: new Date().toISOString()

@@ -83,6 +83,47 @@ describe('Skip Service', () => {
         });
     });
 
+    it('should persist Ani-Skip result to DB when found', async () => {
+        mongoService.getCollection.mockResolvedValue(null);
+        fs.readFile.mockResolvedValue(JSON.stringify({}));
+
+        let saveCalledPromise = new Promise(resolve => {
+            fs.writeFile.mockImplementation((path, data) => {
+                resolve(data); // Resolve with the data being saved
+                return Promise.resolve();
+            });
+        });
+
+        axios.get.mockImplementation((url) => {
+            if (url.includes('cinemeta')) return Promise.resolve({ data: { meta: { name: 'Naruto' } } });
+            if (url.includes('jikan')) return Promise.resolve({ data: { data: [{ mal_id: 20 }] } });
+            if (url.includes('aniskip')) {
+                return Promise.resolve({
+                    data: {
+                        found: true,
+                        results: [{ skipType: 'op', interval: { startTime: 100, endTime: 200 } }]
+                    }
+                });
+            }
+            return Promise.reject(new Error('not found'));
+        });
+
+        await jest.isolateModules(async () => {
+            skipService = loadService();
+            await skipService.getSkipSegment('tt88888:1:1');
+
+            // Wait for the save to happen (or timeout if it fails)
+            const savedDataJson = await Promise.race([
+                saveCalledPromise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout waiting for save')), 1000))
+            ]);
+
+            const savedData = JSON.parse(savedDataJson);
+            expect(savedData['tt88888:1:1']).toBeDefined();
+            expect(savedData['tt88888:1:1'][0].source).toBe('aniskip');
+        });
+    });
+
     it('should prioritize Mongo if available', async () => {
         const mockCollection = {
             findOne: jest.fn().mockResolvedValue({
