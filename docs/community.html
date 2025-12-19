@@ -215,6 +215,20 @@
                 </div>
             </div>
 
+            <div id="seriesOptionContainer" class="d-none" style="margin-top: 15px; margin-bottom: 5px;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <input type="checkbox" id="applySeries"
+                        style="width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer;">
+                    <label for="applySeries" style="font-weight: 500; cursor: pointer; color: var(--text-main);">Apply
+                        to entire series?</label>
+                </div>
+                <div id="seriesWarning" class="d-none"
+                    style="color: #fbbf24; font-size: 0.85rem; margin-top: 8px; background: rgba(251, 191, 36, 0.1); padding: 10px; border-radius: 6px; border: 1px solid rgba(251, 191, 36, 0.2);">
+                    ⚠️ <strong>Warning:</strong> This will add this skip segment to <u>ALL episodes</u> of this series.
+                    Only use this for consistent intros that appear at the exact same timestamp every time.
+                </div>
+            </div>
+
             <div style="display: flex; gap: 15px; margin-top: 30px;">
                 <button onclick="closeSubmit()" class="btn btn-secondary" style="flex: 1;">Cancel</button>
                 <button id="submitBtn" class="btn btn-primary" style="flex: 1; justify-content: center;">Publish
@@ -380,12 +394,25 @@
             const epiSection = document.getElementById('episode-inputs');
             if (item.Type === 'series' || item.Type === 'episode') {
                 epiSection.classList.remove('d-none');
+                document.getElementById('seriesOptionContainer').classList.remove('d-none');
             } else {
                 epiSection.classList.add('d-none');
+                document.getElementById('seriesOptionContainer').classList.add('d-none');
             }
+
+            // Reset series options
+            document.getElementById('applySeries').checked = false;
+            document.getElementById('seriesWarning').classList.add('d-none');
 
             document.getElementById('submit-overlay').style.display = 'flex';
         }
+
+        // Toggle warning
+        document.getElementById('applySeries').addEventListener('change', (e) => {
+            const warn = document.getElementById('seriesWarning');
+            if (e.target.checked) warn.classList.remove('d-none');
+            else warn.classList.add('d-none');
+        });
 
         function openSubmitFromHistory(vid) {
             // Pseudo-item for history
@@ -432,7 +459,8 @@
                         episode,
                         start,
                         end,
-                        label: 'Intro'
+                        label: 'Intro',
+                        applyToSeries: document.getElementById('applySeries').checked
                     })
                 });
 

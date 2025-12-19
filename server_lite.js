@@ -422,7 +422,7 @@ app.get('/api/search', async (req, res) => {
 
 // 2.9 API: Submit Segment
 app.post('/api/submit', async (req, res) => {
-    const { rdKey, imdbID, season, episode, start, end, label } = req.body;
+    const { rdKey, imdbID, season, episode, start, end, label, applyToSeries } = req.body;
     if (!rdKey || !imdbID || start === undefined || end === undefined) {
         return res.status(400).json({ error: "Missing required fields" });
     }
@@ -440,9 +440,14 @@ app.post('/api/submit', async (req, res) => {
     const userId = generateUserId(rdKey);
     const fullId = season && episode ? `${imdbID}:${season}:${episode}` : imdbID;
 
-    console.log(`[Submit] User ${userId.substr(0, 6)} submitted ${start}-${end}s for ${fullId}`);
+    // Log proper context
+    if (applyToSeries) {
+        console.log(`[Submit] User ${userId.substr(0, 6)} submitted GLOBAL SERIES SKIP ${start}-${end}s for ${imdbID}`);
+    } else {
+        console.log(`[Submit] User ${userId.substr(0, 6)} submitted ${start}-${end}s for ${fullId}`);
+    }
 
-    const newSeg = await skipService.addSkipSegment(fullId, parseFloat(start), parseFloat(end), label || "Intro", userId);
+    const newSeg = await skipService.addSkipSegment(fullId, parseFloat(start), parseFloat(end), label || "Intro", userId, applyToSeries);
 
     // Give user credit
     await userService.updateUserStats(userId, {

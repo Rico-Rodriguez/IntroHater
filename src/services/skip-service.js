@@ -83,10 +83,12 @@ function escapeRegex(string) {
 async function getSegments(fullId) {
     await ensureInit();
 
+    const cleanId = String(fullId).trim();
+    let segments = [];
+
     if (useMongo && skipsCollection) {
         try {
-            const cleanId = String(fullId).trim();
-            // 1. Try Exact Match
+            // 1. Try Exact Match (Episode Level)
             let doc = await skipsCollection.findOne({ fullId: cleanId });
 
             // 2. Try Case-Insensitive Match (Regex)
@@ -97,19 +99,49 @@ async function getSegments(fullId) {
                 });
             }
 
-            if (doc) {
-                console.log(`[SkipService] Found ${doc.segments.length} segments in Mongo for [${cleanId}]`);
-                return doc.segments;
-            } else {
-                console.log(`[SkipService] No segments found in Mongo for [${cleanId}]`);
-                return [];
+            if (doc) segments = doc.segments || [];
+
+            // 3. Check for Global Series Skips
+            // If ID is in format tt123:1:2, check tt123
+            const parts = cleanId.split(':');
+            if (parts.length >= 3) {
+                const seriesId = parts[0];
+                const seriesDoc = await skipsCollection.findOne({ fullId: seriesId });
+                if (seriesDoc && seriesDoc.segments) {
+                    // Filter for series-wide skips only
+                    const seriesSkips = seriesDoc.segments.filter(s => s.seriesSkip);
+                    if (seriesSkips.length > 0) {
+                        console.log(`[SkipService] Found ${seriesSkips.length} GLOBAL SERIES skips for [${cleanId}]`);
+                        segments = [...segments, ...seriesSkips];
+                    }
+                }
             }
+
         } catch (e) {
             console.error("[SkipService] Mongo Query Error:", e.message);
             return [];
         }
+    } else {
+        segments = skipsData[cleanId] || [];
+
+        // Check local series skips
+        const parts = cleanId.split(':');
+        if (parts.length >= 3) {
+            const seriesId = parts[0];
+            if (skipsData[seriesId]) {
+                const seriesSkips = skipsData[seriesId].filter(s => s.seriesSkip);
+                if (seriesSkips.length > 0) {
+                    segments = [...segments, ...seriesSkips];
+                }
+            }
+        }
     }
-    return skipsData[fullId] || [];
+
+    if (segments.length > 0) {
+        console.log(`[SkipService] Found ${segments.length} segments total for [${cleanId}]`);
+    }
+
+    return segments;
 }
 
 // Get all skips (Heavy operation - used for catalog)
@@ -328,7 +360,9 @@ async function getSkipSegment(fullId) {
 
 // --- Write Operations (Crowdsourcing) ---
 
-async function addSkipSegment(fullId, start, end, label = "Intro", userId = "anonymous") {
+async function addSkipSegment(fullId, start, end, label = "Intro", userId = "anonymous", applyToSeries = false) {
+    await ensureInit();
+
     // Input Validation
     if (typeof start !== 'number' || typeof end !== 'number' || start < 0 || end <= start) {
         throw new Error("Invalid start or end times");
@@ -337,7 +371,15 @@ async function addSkipSegment(fullId, start, end, label = "Intro", userId = "ano
         throw new Error("Segment too long or beyond reasonable bounds");
     }
     const cleanLabel = String(label).substring(0, 50); // Limit label length
-    const cleanFullId = String(fullId).substring(0, 255);
+    let cleanFullId = String(fullId).substring(0, 255);
+
+    // If applying to series, strip to base ID
+    if (applyToSeries) {
+        const parts = cleanFullId.split(':');
+        if (parts.length >= 3) {
+            cleanFullId = parts[0]; // Use just the IMDb/Series ID
+        }
+    }
 
     const newSegment = {
         start, end, label: cleanLabel,
@@ -345,6 +387,7 @@ async function addSkipSegment(fullId, start, end, label = "Intro", userId = "ano
         verified: false, // All new submissions start unverified
         source: userId === 'aniskip' ? 'aniskip' : 'user',
         reportCount: 0,
+        seriesSkip: applyToSeries === true, // Helper Flag
         contributors: [userId],
         createdAt: new Date().toISOString()
     };
