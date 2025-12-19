@@ -165,9 +165,100 @@ async function fetchAniskip(malId, episode) {
         }
     } catch (e) { }
 
-    // Cache negative result briefly or just return null (if we cache null, we might miss retry if network fails, 
-    // but for now let's just cache success to be safe, or we can cache null too if we want to be strict)
-    // Let's cache null to stop hammering for 404s
+    // Cache null to stop hammering for 404s
+    SKIP_CACHE[cacheKey] = null;
+    return null;
+}
+
+const ANIME_SKIP_CLIENT_ID = 'th2oogUKrgOf1J8wMSIUPV0IpBMsLOJi';
+
+async function fetchAnimeSkip(malId, episode, imdbId) {
+    const cacheKey = `as:${malId || imdbId}:${episode}`;
+    if (SKIP_CACHE[cacheKey]) return SKIP_CACHE[cacheKey];
+
+    try {
+        let showId = null;
+
+        // 1. If we have a malId, we could try findShowsByExternalId, 
+        // but searchShows by name is often more reliable for matching Anime-Skip's DB
+        // Let's try to get the name from Cinemeta first if we only have imdbId
+        let name = null;
+        if (imdbId) {
+            try {
+                const metaRes = await axios.get(`https://v3-cinemeta.strem.io/meta/series/${imdbId}.json`);
+                name = metaRes.data?.meta?.name;
+            } catch (e) { }
+        }
+
+        if (name) {
+            console.log(`[SkipService] Anime-Skip: Searching for "${name}"`);
+            const searchRes = await axios.post('https://api.anime-skip.com/graphql', {
+                query: `query ($search: String!) { searchShows(search: $search) { id name } }`,
+                variables: { search: name }
+            }, { headers: { 'X-Client-ID': ANIME_SKIP_CLIENT_ID } });
+
+            const shows = searchRes.data?.data?.searchShows;
+            if (shows && shows.length > 0) {
+                // Try to find exact match or just take the first
+                const match = shows.find(s => s.name.toLowerCase() === name.toLowerCase()) || shows[0];
+                showId = match.id;
+                console.log(`[SkipService] Anime-Skip: Found show "${match.name}" (${showId})`);
+            }
+        }
+
+        if (!showId) {
+            SKIP_CACHE[cacheKey] = null;
+            return null;
+        }
+
+        // 2. Fetch timestamps for the show
+        const query = `
+            query ($showId: ID!, $episodeNumber: Float!) {
+                findEpisodesByShowId(showId: $showId) {
+                    number
+                    timestamps {
+                        at
+                        type {
+                            name
+                        }
+                    }
+                }
+            }
+        `;
+
+        const res = await axios.post('https://api.anime-skip.com/graphql', {
+            query,
+            variables: { showId, episodeNumber: parseFloat(episode) }
+        }, {
+            headers: { 'X-Client-ID': ANIME_SKIP_CLIENT_ID }
+        });
+
+        const episodes = res.data?.data?.findEpisodesByShowId || [];
+        const episodeData = episodes.find(e => e.number === parseFloat(episode));
+
+        if (episodeData && episodeData.timestamps) {
+            const timestamps = episodeData.timestamps;
+            const introStart = timestamps.find(t => t.type.name.toLowerCase().includes('opening') || t.type.name.toLowerCase().includes('intro'));
+
+            if (introStart) {
+                const currentIndex = timestamps.indexOf(introStart);
+                const next = timestamps[currentIndex + 1];
+
+                const result = {
+                    start: introStart.at,
+                    end: next ? next.at : introStart.at + 90,
+                    label: 'Intro',
+                    source: 'anime-skip'
+                };
+
+                SKIP_CACHE[cacheKey] = result;
+                return result;
+            }
+        }
+    } catch (e) {
+        console.error(`[SkipService] Anime-Skip fetch failed: ${e.message}`);
+    }
+
     SKIP_CACHE[cacheKey] = null;
     return null;
 }
@@ -203,6 +294,17 @@ async function getSkipSegment(fullId) {
                     .catch(e => console.error(`[SkipService] Failed to persist Aniskip segment: ${e.message}`));
 
                 return aniSkip;
+            }
+
+            // 4. Try Anime-Skip (Fallback)
+            const animeSkip = await fetchAnimeSkip(malId, episode, imdbId);
+            if (animeSkip) {
+                console.log(`[SkipService] Found Anime-Skip for ${fullId}: ${animeSkip.start}-${animeSkip.end}`);
+                // Persist the segment
+                addSkipSegment(fullId, animeSkip.start, animeSkip.end, 'Intro', 'anime-skip')
+                    .catch(e => console.error(`[SkipService] Failed to persist Anime-Skip segment: ${e.message}`));
+
+                return animeSkip;
             }
         }
     }
