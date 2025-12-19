@@ -26,6 +26,11 @@ jest.mock('../../src/services/user-service.js', () => ({
     updateUserStats: jest.fn().mockResolvedValue({ userId: 'u1', votes: 6 })
 }));
 
+// Mock rate-limit to avoid open handles (timer)
+jest.mock('express-rate-limit', () => {
+    return jest.fn(() => (req, res, next) => next());
+});
+
 // Mock Axios for RD checks
 jest.mock('axios'); // Required to use __mocks__/axios.js
 
