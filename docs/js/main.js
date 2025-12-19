@@ -68,9 +68,11 @@ document.addEventListener('DOMContentLoaded', () => {
     fetchStats();
 });
 
+const API_BASE_URL = window.location.protocol === 'file:' ? 'https://introhater.com' : '';
+
 async function fetchStats() {
     try {
-        const res = await fetch('/api/stats');
+        const res = await fetch(`${API_BASE_URL}/api/stats`);
         if (!res.ok) return; // Silent fail
         const data = await res.json();
 
