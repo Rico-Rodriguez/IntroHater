@@ -6,7 +6,7 @@ const SECURITY = {
     RATE_LIMITS: {
         GLOBAL: {
             WINDOW_MS: 60 * 60 * 1000, // 1 hour
-            MAX_REQUESTS: 50
+            MAX_REQUESTS: 5000
         },
         SUBMISSION: {
             WINDOW_MS: 60 * 60 * 1000, // 1 hour
