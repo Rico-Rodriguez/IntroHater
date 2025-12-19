@@ -14,10 +14,23 @@ try {
     }
 } catch (e) { }
 
+// SSRF Protection (Duplicate of server_lite logic for modularity)
+function isSafeUrl(urlStr) {
+    try {
+        const url = new URL(urlStr);
+        const host = url.hostname.toLowerCase();
+        if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1') return false;
+        if (host.startsWith('10.') || host.startsWith('192.168.') || host.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./)) return false;
+        if (host === '169.254.169.254') return false;
+        return ['http:', 'https:'].includes(url.protocol);
+    } catch (e) { return false; }
+}
+
 /**
  * Follows redirects to get the final direct URL and Contents-Length
  */
 async function getStreamDetails(url) {
+    if (!isSafeUrl(url)) return { finalUrl: url, contentLength: null };
     try {
         const response = await axios.head(url, {
             maxRedirects: 10,
@@ -63,6 +76,12 @@ async function getByteOffset(url, startTime) {
         console.log(`[HLS Proxy] Spawning ffprobe for ${startTime}s...`);
         const proc = spawn(ffprobePath, args);
 
+        const timeout = setTimeout(() => {
+            console.warn(`[HLS Proxy] FFprobe timeout for ${startTime}s. Killing.`);
+            proc.kill('SIGKILL');
+            resolve(0);
+        }, 15000); // 15s timeout
+
         let stdout = '';
         let stderr = '';
 
@@ -70,6 +89,7 @@ async function getByteOffset(url, startTime) {
         proc.stderr.on('data', (data) => stderr += data);
 
         proc.on('close', (code) => {
+            clearTimeout(timeout);
             if (code !== 0) {
                 console.warn(`[HLS Proxy] FFprobe exited with code ${code}. Stderr: ${stderr}`);
                 return resolve(0);
@@ -187,6 +207,12 @@ async function getRefinedOffsets(url, startSec, endSec) {
         console.log(`[HLS Proxy] Probing splice points: ${startSec}s & ${endSec}s`);
         const proc = spawn(ffprobePath, args);
 
+        const timeout = setTimeout(() => {
+            console.warn(`[HLS Proxy] FFprobe splice probe timeout. Killing.`);
+            proc.kill('SIGKILL');
+            resolve(null);
+        }, 20000); // 20s timeout
+
         let stdout = '';
         let stderr = '';
 
@@ -194,6 +220,7 @@ async function getRefinedOffsets(url, startSec, endSec) {
         proc.stderr.on('data', (data) => stderr += data);
 
         proc.on('close', (code) => {
+            clearTimeout(timeout);
             if (code !== 0) {
                 console.warn(`[HLS Proxy] Probe failed code ${code}`);
                 return resolve(null);
@@ -253,6 +280,12 @@ async function getChapters(url) {
         console.log(`[HLS Proxy] Probing chapters for ${url}...`);
         const proc = spawn(ffprobePath, args);
 
+        const timeout = setTimeout(() => {
+            console.warn(`[HLS Proxy] FFprobe chapter probe timeout. Killing.`);
+            proc.kill('SIGKILL');
+            resolve([]);
+        }, 10000); // 10s timeout
+
         let stdout = '';
         let stderr = '';
 
@@ -260,6 +293,7 @@ async function getChapters(url) {
         proc.stderr.on('data', (data) => stderr += data);
 
         proc.on('close', (code) => {
+            clearTimeout(timeout);
             if (code !== 0) {
                 console.warn(`[HLS Proxy] Chapter probe failed code ${code}. Stderr: ${stderr}`);
                 return resolve([]);

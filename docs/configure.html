@@ -53,7 +53,13 @@
                                     Get Key ↗
                                 </a>
                             </div>
-                            <p style="font-size: 0.8rem; color: var(--text-muted);">
+                            <div style="display: flex; gap: 10px; margin-top: 10px;">
+                                <button type="button" id="checkStatsBtn" class="btn btn-secondary"
+                                    style="flex: 1;">Check My Stats</button>
+                                <button type="button" id="logoutBtn" class="btn btn-secondary d-none"
+                                    style="flex: 1; border: 1px solid #ef4444; color: #ef4444;">Logout</button>
+                            </div>
+                            <p style="font-size: 0.8rem; color: var(--text-muted); margin-top: 15px;">
                                 We need the <strong>Private Token</strong> to stream links via Torrentio.
                             </p>
                         </div>
@@ -101,6 +107,54 @@
 
                 </div>
 
+                <!-- Stats Panel (Hidden by default) -->
+                <div id="stats-panel" class="d-none" style="margin-top: 24px;">
+                    <div class="glass-panel"
+                        style="padding: 20px; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">User ID
+                            </div>
+                            <div id="userIdDisplay" style="font-weight: 700;">-</div>
+                        </div>
+                        <div style="display: flex; gap: 30px;">
+                            <div class="text-center">
+                                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">
+                                    Rank</div>
+                                <div id="userRank" style="font-weight: 700;">-</div>
+                            </div>
+                            <div class="text-center">
+                                <div style="font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase;">
+                                    Votes</div>
+                                <div id="userVotes" style="font-weight: 700;">0</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- History Panel (Hidden by default) -->
+                <div id="history-panel" class="d-none" style="margin-top: 24px;">
+                    <h3 style="font-size: 1.1rem; margin-bottom: 12px; font-family: 'Space Grotesk', sans-serif;">Recent
+                        Activity</h3>
+                    <div id="history-list" style="display: flex; flex-direction: column; gap: 10px;">
+                        <!-- Items populated by JS -->
+                    </div>
+                </div>
+
+                <!-- Search Panel -->
+                <div style="margin-top: 32px; padding-top: 24px; border-top: 1px solid var(--border);">
+                    <h3 style="font-size: 1.1rem; margin-bottom: 12px; font-family: 'Space Grotesk', sans-serif;">Search
+                        & Contribute</h3>
+                    <div style="display: flex; gap: 10px; margin-bottom: 15px;">
+                        <input type="text" id="searchInput" class="form-input"
+                            placeholder="Search for movies or series...">
+                        <button id="searchBtn" class="btn btn-primary" style="padding: 8px 16px;">Search</button>
+                    </div>
+                    <div id="search-results"
+                        style="display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow-y: auto;">
+                        <!-- Results populated by JS -->
+                    </div>
+                </div>
+
                 <div
                     style="margin-top: 24px; text-align: center; border-top: 1px solid var(--border); padding-top: 24px;">
                     <p style="color: var(--text-muted); font-size: 0.9rem;">
@@ -119,17 +173,28 @@
     </main>
 
     <script>
-        // Auto-fill RD Key from URL (e.g. /KEY/configure)
+        // Persistence Logic
         (function () {
+            const savedKey = localStorage.getItem('introhater_rdkey');
+            if (savedKey) {
+                document.getElementById('rdKey').value = savedKey;
+                document.getElementById('logoutBtn').classList.remove('d-none');
+            }
+
+            // Path-based auto-fill (Stremio redirect fallback)
             const parts = window.location.pathname.split('/').filter(p => p);
-            // If path is like /KEY/configure, parts[0] is KEY
             if (parts.length >= 2 && parts[parts.length - 1] === 'configure') {
                 const potentialKey = parts[0];
-                if (potentialKey.length > 5) { // Basic sanity check
+                if (potentialKey.length > 5) {
                     document.getElementById('rdKey').value = potentialKey;
                 }
             }
         })();
+
+        document.getElementById('logoutBtn').onclick = function () {
+            localStorage.removeItem('introhater_rdkey');
+            location.reload();
+        };
 
         document.getElementById('config-form').onsubmit = function (e) {
             e.preventDefault();
@@ -175,6 +240,9 @@
 
                 if (res.ok) {
                     const data = await res.json();
+                    localStorage.setItem('introhater_rdkey', key);
+                    document.getElementById('logoutBtn').classList.remove('d-none');
+                    document.getElementById('userIdDisplay').classList.remove('d-none'); // Ensure visible
 
                     // Show ID (Shortened)
                     if (data.userId) {
@@ -200,7 +268,16 @@
                             row.style.fontSize = '0.85rem';
 
                             const info = document.createElement('div');
-                            info.innerHTML = `<strong>${item.videoId}</strong><br><span style="color:var(--text-muted); font-size:0.75rem;">${new Date(item.timestamp).toLocaleString()}</span>`;
+                            const titleEl = document.createElement('strong');
+                            titleEl.textContent = item.title || item.videoId;
+                            info.appendChild(titleEl);
+                            info.appendChild(document.createElement('br'));
+
+                            const timeSpan = document.createElement('span');
+                            timeSpan.style.color = 'var(--text-muted)';
+                            timeSpan.style.fontSize = '0.75rem';
+                            timeSpan.textContent = new Date(item.timestamp).toLocaleString();
+                            info.appendChild(timeSpan);
 
                             const actions = document.createElement('div');
                             const reportBtn = document.createElement('button');
@@ -216,11 +293,22 @@
                             historyList.appendChild(row);
                         });
                         document.getElementById('history-panel').classList.remove('d-none');
+                    } else {
+                        document.getElementById('history-panel').classList.add('d-none');
                     }
 
                     const panel = document.getElementById('stats-panel');
                     panel.classList.remove('d-none');
                     panel.style.animation = "fadeIn 0.5s ease";
+                } else if (res.status === 401) {
+                    alert("Invalid Real-Debrid Key. Please verify your token.");
+                    localStorage.removeItem('introhater_rdkey');
+                    document.getElementById('logoutBtn').classList.add('d-none');
+                    document.getElementById('stats-panel').classList.add('d-none');
+                    document.getElementById('history-panel').classList.add('d-none');
+                } else {
+                    const err = await res.json();
+                    alert("Error: " + (err.error || "Failed to fetch stats"));
                 }
             } catch (e) {
                 console.error(e);
@@ -283,14 +371,36 @@
                         row.style.cursor = 'pointer';
                         row.onclick = () => openSubmit(item);
 
-                        row.innerHTML = `
-                            <img src="${item.Poster !== 'N/A' ? item.Poster : '/icon32.png'}" style="width: 40px; height: 60px; object-fit: cover; border-radius: 4px;">
-                            <div style="flex: 1">
-                                <div style="font-weight: 600;">${item.Title}</div>
-                                <div style="font-size: 0.8rem; color: var(--text-muted);">${item.Year} • ${item.Type}</div>
-                            </div>
-                            <span class="btn btn-secondary" style="font-size: 0.7rem;">Contribute</span>
-                        `;
+                        const img = document.createElement('img');
+                        img.src = item.Poster !== 'N/A' ? item.Poster : '/icon32.png';
+                        img.style.width = '40px';
+                        img.style.height = '60px';
+                        img.style.objectFit = 'cover';
+                        img.style.borderRadius = '4px';
+
+                        const details = document.createElement('div');
+                        details.style.flex = '1';
+
+                        const title = document.createElement('div');
+                        title.style.fontWeight = '600';
+                        title.textContent = item.Title;
+
+                        const sub = document.createElement('div');
+                        sub.style.fontSize = '0.8rem';
+                        sub.style.color = 'var(--text-muted)';
+                        sub.textContent = `${item.Year} • ${item.Type}`;
+
+                        details.appendChild(title);
+                        details.appendChild(sub);
+
+                        const badge = document.createElement('span');
+                        badge.className = 'btn btn-secondary';
+                        badge.style.fontSize = '0.7rem';
+                        badge.textContent = 'Contribute';
+
+                        row.appendChild(img);
+                        row.appendChild(details);
+                        row.appendChild(badge);
                         resultsCont.appendChild(row);
                     });
                 } else {

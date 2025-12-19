@@ -1,11 +1,24 @@
-const fs = require('fs').promises;
-const path = require('path');
-const { OMDB } = require('../config/constants');
+const axios = require('axios');
+const mongoService = require('./mongodb');
 
-// Change to the proper persistent directory in ubuntu's home
-const CATALOG_DIR = '/home/ubuntu/.introhater';
-const CATALOG_FILE = path.join(CATALOG_DIR, 'catalog.json');
-const CATALOG_BACKUP = path.join(CATALOG_DIR, 'catalog.backup.json');
+// Persistence State
+let useMongo = false;
+let catalogCollection = null;
+
+async function ensureInit() {
+    if (catalogCollection) return;
+    try {
+        catalogCollection = await mongoService.getCollection('catalog');
+        if (catalogCollection) {
+            useMongo = true;
+            try {
+                await catalogCollection.createIndex({ imdbId: 1 }, { unique: true });
+            } catch (e) { }
+        }
+    } catch (e) {
+        console.error("[Catalog] Mongo Init Error:", e);
+    }
+}
 
 async function ensureCatalogDir() {
     try {
@@ -16,78 +29,120 @@ async function ensureCatalogDir() {
 }
 
 async function readCatalog() {
+    await ensureInit();
+    if (useMongo) {
+        const items = await catalogCollection.find({}).toArray();
+        const media = {};
+        items.forEach(item => {
+            const { _id, ...rest } = item;
+            media[item.imdbId] = rest;
+        });
+        return { lastUpdated: new Date().toISOString(), media };
+    }
+    // Fallback to local file if Mongo not available (legacy)
     try {
-        await ensureCatalogDir();
-        
-        // Try to read the main catalog file
-        try {
-            const data = await fs.readFile(CATALOG_FILE, 'utf8');
-            return JSON.parse(data);
-        } catch (error) {
-            if (error.code === 'ENOENT') {
-                // If main file doesn't exist, try to read the backup
-                try {
-                    const backupData = await fs.readFile(CATALOG_BACKUP, 'utf8');
-                    const catalog = JSON.parse(backupData);
-                    // Restore from backup
-                    await writeCatalog(catalog);
-                    console.log('Restored catalog from backup');
-                    return catalog;
-                } catch (backupError) {
-                    // If no backup exists either, create a new catalog
-                    const defaultCatalog = {
-                        lastUpdated: null,
-                        media: {}
-                    };
-                    await writeCatalog(defaultCatalog);
-                    return defaultCatalog;
-                }
-            }
-            throw error;
-        }
-    } catch (error) {
-        console.error('Error reading catalog:', error);
+        const fs = require('fs').promises;
+        const path = require('path');
+        const CATALOG_FILE = path.join(__dirname, '../../data/catalog.json');
+        const data = await fs.readFile(CATALOG_FILE, 'utf8');
+        return JSON.parse(data);
+    } catch (e) {
         return { lastUpdated: null, media: {} };
     }
 }
 
-async function writeCatalog(catalog) {
-    try {
-        await ensureCatalogDir();
-        
-        // Write the main catalog file
-        await fs.writeFile(CATALOG_FILE, JSON.stringify(catalog, null, 2));
-        
-        // Create a backup
-        await fs.writeFile(CATALOG_BACKUP, JSON.stringify(catalog, null, 2));
-    } catch (error) {
-        console.error('Error writing catalog:', error);
+async function writeCatalogEntry(imdbId, entry) {
+    await ensureInit();
+    if (useMongo) {
+        await catalogCollection.replaceOne({ imdbId }, { imdbId, ...entry }, { upsert: true });
+    } else {
+        // Limited file-based write for backward compatibility
+        try {
+            const fs = require('fs').promises;
+            const path = require('path');
+            const CATALOG_FILE = path.join(__dirname, '../../data/catalog.json');
+            const catalog = await readCatalog();
+            catalog.media[imdbId] = entry;
+            catalog.lastUpdated = new Date().toISOString();
+            await fs.writeFile(CATALOG_FILE, JSON.stringify(catalog, null, 2));
+        } catch (e) { }
     }
 }
 
-async function fetchOMDbData(imdbId) {
-    try {
-        const response = await fetch(`${OMDB.BASE_URL}/?i=${imdbId}&apikey=${OMDB.API_KEY}`);
-        if (!response.ok) throw new Error('Failed to fetch OMDB data');
-        return await response.json();
-    } catch (error) {
-        console.error('Error fetching OMDB data:', error);
-        return null;
+async function fetchMetadata(imdbId) {
+    const omdbKey = process.env.OMDB_API_KEY;
+    let data = null;
+
+    // 1. Try OMDB
+    if (omdbKey) {
+        try {
+            const response = await axios.get(`http://www.omdbapi.com/?i=${imdbId}&apikey=${omdbKey}`);
+            if (response.data && response.data.Response !== "False") {
+                data = {
+                    Title: response.data.Title,
+                    Year: response.data.Year,
+                    Poster: response.data.Poster !== "N/A" ? response.data.Poster : null
+                };
+            }
+        } catch (error) {
+            console.error('[Catalog] OMDB Error:', error.message);
+        }
     }
+
+    // 2. Fallback to Cinemeta
+    if (!data) {
+        try {
+            const type = imdbId.startsWith('tt') ? (await isSeries(imdbId) ? 'series' : 'movie') : 'series';
+            const response = await axios.get(`https://v3-cinemeta.strem.io/meta/${type}/${imdbId}.json`);
+            const meta = response.data?.meta;
+            if (meta) {
+                data = {
+                    Title: meta.name,
+                    Year: meta.year || meta.releaseInfo || "????",
+                    Poster: meta.poster || null
+                };
+            }
+        } catch (error) {
+            console.error('[Catalog] Cinemeta Fallback Error:', error.message);
+        }
+    }
+
+    return data;
 }
 
-async function updateCatalog(segment) {
+async function isSeries(imdbId) {
+    try {
+        const res = await axios.get(`https://v3-cinemeta.strem.io/meta/series/${imdbId}.json`);
+        return !!res.data?.meta;
+    } catch (e) { return false; }
+}
+
+/**
+ * Universal Registration: Track availability across sources
+ * @param {string} videoId Format: tt123456 or tt123456:S:E
+ */
+async function registerShow(videoId) {
     const catalog = await readCatalog();
-    const [imdbId, season, episode] = segment.videoId.split(':');
-    
-    // If we haven't seen this media before
+    const parts = videoId.split(':');
+    const imdbId = parts[0];
+
+    // VALIDATE ID: Prevent catalog spam with fake IDs
+    if (!imdbId.match(/^tt\d+$/)) {
+        console.warn(`[Catalog] Rejected invalid ID: ${imdbId}`);
+        return;
+    }
+
+    const season = parts[1] ? parseInt(parts[1]) : null;
+    const episode = parts[2] ? parseInt(parts[2]) : null;
+
     if (!catalog.media[imdbId]) {
-        const omdbData = await fetchOMDbData(imdbId);
-        if (!omdbData) return;
+        const meta = await fetchMetadata(imdbId);
+        if (!meta) return;
 
         catalog.media[imdbId] = {
-            title: omdbData.Title,
-            year: omdbData.Year,
+            title: meta.Title,
+            year: meta.Year,
+            poster: meta.Poster,
             type: season && episode ? 'show' : 'movie',
             episodes: {},
             addedAt: new Date().toISOString(),
@@ -97,26 +152,25 @@ async function updateCatalog(segment) {
     }
 
     const media = catalog.media[imdbId];
-    
-    // For TV shows, track episodes
+
     if (season && episode) {
-        const episodeKey = `${season}:${episode}`;
-        if (!media.episodes[episodeKey]) {
-            media.episodes[episodeKey] = {
-                season: parseInt(season),
-                episode: parseInt(episode),
-                segmentCount: 0,
-                addedAt: new Date().toISOString()
+        const epKey = `${season}:${episode}`;
+        if (!media.episodes[epKey]) {
+            media.episodes[epKey] = {
+                season, episode, count: 0
             };
         }
-        media.episodes[episodeKey].segmentCount++;
+        media.episodes[epKey].count++;
     }
 
     media.totalSegments++;
     media.lastUpdated = new Date().toISOString();
-    catalog.lastUpdated = new Date().toISOString();
 
-    await writeCatalog(catalog);
+    await writeCatalogEntry(imdbId, media);
+}
+
+async function updateCatalog(segment) {
+    return await registerShow(segment.videoId);
 }
 
 async function getCatalogData() {
@@ -125,5 +179,6 @@ async function getCatalogData() {
 
 module.exports = {
     updateCatalog,
+    registerShow,
     getCatalogData
 };

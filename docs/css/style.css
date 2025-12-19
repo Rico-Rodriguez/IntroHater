@@ -748,6 +748,11 @@ table.dataTable tbody td {
     color: #ff453a;
 }
 
+.badge-danger {
+    background: rgba(255, 69, 58, 0.2);
+    color: #ff453a;
+}
+
 .alert {
     padding: 16px;
     border-radius: 8px;

@@ -66,8 +66,9 @@ async function initializeCatalog() {
                 className: 'min-tablet text-right',
                 render: function (data, type, row) {
                     if (type === 'display') {
-                        const totalSegments = row[4];
-
+                        // Index 4 is Total Segments display
+                        // Index 3 is Episodes object
+                        // Index 2 is Type
                         if (row[2] === 'TV Show' && row[3]) {
                             const episodesData = JSON.stringify(row[3]).replace(/"/g, '&quot;');
                             return `<button class="btn btn-secondary episode-btn" 
@@ -76,7 +77,7 @@ async function initializeCatalog() {
                                     View
                                    </button>`;
                         } else {
-                            return `<span class="text-muted font-weight-bold">${totalSegments}</span>`;
+                            return `<span class="text-muted font-weight-bold">${row[4]}</span>`;
                         }
                     }
                     return row[4];
@@ -93,14 +94,17 @@ async function initializeCatalog() {
     // Fetch and update data
     fetchCatalog().then(catalog => {
         const mediaEntries = catalog?.media ? Object.entries(catalog.media) : [];
-        const tableData = mediaEntries.map(([, media]) => [
-            media.title,
-            media.year,
-            media.type === 'show' ? 'TV Show' : 'Movie',
-            media.type === 'show' ? media.episodes : null,
-            `<span class="segment-count">${media.totalSegments} segment${media.totalSegments !== 1 ? 's' : ''}</span>`
-        ]);
+        const tableData = mediaEntries.map(([, media]) => {
+            return [
+                media.title,
+                media.year,
+                media.type === 'show' ? 'TV Show' : 'Movie',
+                media.type === 'show' ? media.episodes : null,
+                `<span class="segment-count">${media.totalSegments} segment${media.totalSegments !== 1 ? 's' : ''}</span>`
+            ];
+        });
 
+        const dt = window.jQuery('#catalogTable').DataTable();
         dt.clear();
         dt.rows.add(tableData);
         dt.draw();

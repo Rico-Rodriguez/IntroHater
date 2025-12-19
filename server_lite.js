@@ -6,12 +6,20 @@ const path = require('path');
 const { getByteOffset, generateSmartManifest, getStreamDetails, getRefinedOffsets, generateSpliceManifest, getChapters } = require('./src/services/hls-proxy');
 const skipService = require('./src/services/skip-service');
 const { getSkipSegment, getSegments, getAllSegments } = skipService;
+const catalogService = require('./src/services/catalog');
 const userService = require('./src/services/user-service');
+const indexerService = require('./src/services/indexer');
 const axios = require('axios');
 
 // Configure ffmpeg/ffprobe paths
 const ffmpeg = require('fluent-ffmpeg');
 const crypto = require('crypto');
+const helmet = require('helmet');
+const hpp = require('hpp');
+const rateLimit = require('express-rate-limit');
+const { generateUserToken, verifyUserToken } = require('./src/utils/auth.js');
+const { SECURITY } = require('./src/config/constants');
+const fs = require('fs').promises;
 
 // In production (Lite), we use the system-installed ffmpeg (from apt-get)
 // We only use static binaries for local Windows dev if needed
@@ -38,7 +46,7 @@ function toVTTTime(seconds) {
 // Helper: Generate Secure User ID from RD Key
 function generateUserId(rdKey) {
     if (!rdKey) return 'anonymous';
-    return crypto.createHash('md5').update(rdKey).digest('hex');
+    return crypto.createHash('sha256').update(rdKey).digest('hex').substring(0, 32);
 }
 
 // Helper: Persistent Metadata Cache
@@ -167,8 +175,19 @@ async function handleStreamRequest(type, id, rdKey, baseUrl) {
 
 // Express Server
 const app = express();
-app.set('trust proxy', true); // Trust Render/Heroku proxy for correct protocol (https)
+app.set('trust proxy', true);
+app.use(helmet());
+app.use(hpp());
 app.use(cors());
+app.use(express.json());
+
+// Global Rate Limiter
+const globalLimiter = rateLimit({
+    windowMs: SECURITY.RATE_LIMITS.GLOBAL.WINDOW_MS,
+    max: SECURITY.RATE_LIMITS.GLOBAL.MAX_REQUESTS,
+    message: { error: "Too many requests, please try again later." }
+});
+app.use('/api/', globalLimiter);
 
 // 1. Serve Website (Docs)
 app.use(express.static(path.join(__dirname, 'docs')));
@@ -243,15 +262,33 @@ app.get('/api/stats', async (req, res) => {
 
     // Anime-Skip Live Stats
     let animeSkipCount = 0;
+    let animeSkipShows = 0;
+    let animeSkipEpisodes = 0;
     try {
-        const query = `query { counts { timestamps } }`;
+        const query = `query { counts { timestamps shows episodes } }`;
         const asRes = await axios.post('https://api.anime-skip.com/graphql',
             { query },
             { headers: { 'X-Client-ID': 'th2oogUKrgOf1J8wMSIUPV0IpBMsLOJi' }, timeout: 2000 }
         );
         animeSkipCount = asRes.data?.data?.counts?.timestamps || 0;
+        animeSkipShows = asRes.data?.data?.counts?.shows || 0;
+        animeSkipEpisodes = asRes.data?.data?.counts?.episodes || 0;
     } catch (e) {
         console.warn("[Stats] Failed to fetch live Anime-Skip stats:", e.message);
+    }
+
+    // Get catalog data for shows/episodes counts
+    let localShowCount = 0;
+    let localEpisodeCount = 0;
+    try {
+        const catalog = await catalogService.getCatalogData();
+        const mediaEntries = Object.values(catalog.media || {});
+        localShowCount = mediaEntries.length;
+        mediaEntries.forEach(m => {
+            localEpisodeCount += Object.keys(m.episodes || {}).length;
+        });
+    } catch (e) {
+        console.warn("[Stats] Failed to calculate catalog counts:", e.message);
     }
 
     res.json({
@@ -259,6 +296,8 @@ app.get('/api/stats', async (req, res) => {
         skips: localSegmentCount + ANISKIP_ESTIMATE + animeSkipCount, // Total skips served (Combined)
         votes: voteCount,
         segments: localSegmentCount, // Local community segments
+        showCount: localShowCount + animeSkipShows,
+        episodeCount: localEpisodeCount + animeSkipEpisodes,
         sources: {
             local: localSegmentCount,
             aniskip: ANISKIP_ESTIMATE,
@@ -274,6 +313,16 @@ app.post('/api/stats/personal', async (req, res) => {
     if (!rdKey) return res.status(400).json({ error: "RD Key required" });
 
     try {
+        // --- VERIFY RD KEY ---
+        try {
+            await axios.get('https://api.real-debrid.com/rest/1.0/user', {
+                headers: { 'Authorization': `Bearer ${rdKey}` },
+                timeout: 3000
+            });
+        } catch (e) {
+            return res.status(401).json({ error: "Invalid Real-Debrid Key" });
+        }
+
         const userId = generateUserId(rdKey);
         const stats = await userService.getUserStats(userId);
 
@@ -404,7 +453,36 @@ app.post('/api/submit', async (req, res) => {
 });
 
 // 2.10 API: Admin Moderation (Protected)
-const ADMIN_PASS = process.env.ADMIN_PASSWORD || "admin123";
+const ADMIN_PASS = process.env.ADMIN_PASSWORD;
+if (!ADMIN_PASS) {
+    console.warn("CRITICAL: ADMIN_PASSWORD not set. Admin API is DISABLED.");
+}
+
+// 2.11 API: Generate Extension Token
+app.post('/api/generate-token', async (req, res) => {
+    const { userId, rdKey } = req.body;
+    const apiKey = req.headers['x-api-key'];
+
+    // Extension usually sends X-API-Key or we can verify via RD Key
+    if (apiKey !== process.env.API_KEY && !rdKey) {
+        return res.status(401).json({ error: "Unauthorized" });
+    }
+
+    // If RD Key provided, verify it first
+    if (rdKey) {
+        try {
+            await axios.get('https://api.real-debrid.com/rest/1.0/user', {
+                headers: { 'Authorization': `Bearer ${rdKey}` }
+            });
+        } catch (e) {
+            return res.status(401).json({ error: "Invalid RD Key" });
+        }
+    }
+
+    const tokenData = generateUserToken(userId);
+    await userService.storeUserToken(userId, tokenData.token, tokenData.timestamp, tokenData.nonce);
+    res.json(tokenData);
+});
 
 app.post('/api/admin/pending', async (req, res) => {
     const { password } = req.body;
@@ -424,72 +502,14 @@ app.post('/api/admin/resolve', async (req, res) => {
 
 // 3. API: Catalog (Built from Skips)
 // 3. API: Catalog (Built from Skips with OMDB Metadata)
+// 3. API: Catalog (Universal Registry)
 app.get('/api/catalog', async (req, res) => {
-    const allSkips = await getAllSegments();
-    const catalog = { lastUpdated: new Date().toISOString(), media: {} };
-
-    // Simple in-memory cache for metadata to avoid hitting OMDB limits
-    if (!global.metadataCache) global.metadataCache = {};
-
-    const omdbKey = process.env.OMDB_API_KEY;
-
-
-
-    // 1. Collect Missing IDs
-    const missingIds = new Set();
-    for (const key of Object.keys(allSkips)) {
-        const imdbId = key.split(':')[0];
-        if (!global.metadataCache[imdbId]) {
-            missingIds.add(imdbId);
-        }
+    try {
+        const catalog = await catalogService.getCatalogData();
+        res.json(catalog);
+    } catch (e) {
+        res.status(500).json({ error: "Failed to load catalog" });
     }
-
-    // 2. Fetch Missing Metadata (Parallel)
-    if (missingIds.size > 0 && omdbKey) {
-        console.log(`[Catalog] Fetching metadata for ${missingIds.size} items...`);
-        const promises = Array.from(missingIds).map(id => fetchOMDbData(id, omdbKey));
-        const results = await Promise.all(promises);
-        results.forEach(data => {
-            if (data && data.imdbID) {
-                global.metadataCache[data.imdbID] = data;
-            }
-        });
-    }
-
-    // 3. Build Catalog (Now with populated cache)
-    for (const [key, segments] of Object.entries(allSkips)) {
-        const parts = key.split(':');
-        const imdbId = parts[0];
-        const season = parts[1] ? parseInt(parts[1]) : null;
-        const episode = parts[2] ? parseInt(parts[2]) : null;
-
-        let meta = global.metadataCache[imdbId];
-
-        if (!catalog.media[imdbId]) {
-            catalog.media[imdbId] = {
-                title: meta ? meta.Title : imdbId,
-                year: meta ? meta.Year : "????",
-                poster: meta ? meta.Poster : null,
-                type: season ? 'show' : 'movie',
-                episodes: {},
-                totalSegments: 0
-            };
-        }
-
-        const media = catalog.media[imdbId];
-        media.totalSegments += segments.length;
-
-        if (season && episode) {
-            const epKey = `${season}:${episode}`;
-            if (!media.episodes[epKey]) {
-                media.episodes[epKey] = {
-                    season, episode, segmentCount: 0
-                };
-            }
-            media.episodes[epKey].segmentCount += segments.length;
-        }
-    }
-    res.json(catalog);
 });
 
 
@@ -505,8 +525,53 @@ app.get('/me', (req, res) => res.json(null));
 
 app.get('/ping', (req, res) => res.send('pong'));
 
-// Simple In-Memory Cache
-const manifestCache = new Map();
+// Basic LRU Cache Implementation for Manifests
+class SimpleLRUCache {
+    constructor(maxSize = 500) {
+        this.maxSize = maxSize;
+        this.cache = new Map();
+    }
+    get(key) {
+        if (!this.cache.has(key)) return null;
+        const value = this.cache.get(key);
+        this.cache.delete(key);
+        this.cache.set(key, value);
+        return value;
+    }
+    set(key, value) {
+        if (this.cache.has(key)) this.cache.delete(key);
+        else if (this.cache.size >= this.maxSize) {
+            this.cache.delete(this.cache.keys().next().value);
+        }
+        this.cache.set(key, value);
+    }
+    has(key) { return this.cache.has(key); }
+}
+
+const manifestCache = new SimpleLRUCache(1000);
+
+// SSRF Protection: Block internal/private IP ranges
+function isSafeUrl(urlStr) {
+    try {
+        const url = new URL(urlStr);
+        const host = url.hostname.toLowerCase();
+
+        // Block localhost and common private ranges
+        if (host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0' || host === '::1') return false;
+
+        // Private IP Ranges (simplified check)
+        if (host.startsWith('10.') ||
+            host.startsWith('192.168.') ||
+            host.match(/^172\.(1[6-9]|2[0-9]|3[0-1])\./)) return false;
+
+        // Metadata services
+        if (host === '169.254.169.254') return false;
+
+        return ['http:', 'https:'].includes(url.protocol);
+    } catch (e) {
+        return false;
+    }
+}
 
 app.get('/sub/status/:videoId.vtt', (req, res) => {
     const vid = req.params.videoId;
@@ -533,35 +598,47 @@ app.get('/sub/status/:videoId.vtt', (req, res) => {
 app.get('/hls/manifest.m3u8', async (req, res) => {
     const { stream, start: startStr, end: endStr, id: videoId, user: userId } = req.query;
 
-    if (!stream) {
-        return res.status(400).send("Missing stream URL");
+    if (!stream || !isSafeUrl(decodeURIComponent(stream))) {
+        return res.status(400).send("Invalid or unsafe stream URL");
     }
 
-    // --- IMPLICIT UPVOTING & HISTORY (Debounced per session) ---
-    const telemetryKey = `${userId}:${videoId}`;
-    if (videoId && userId && !global.loggedHistory?.[telemetryKey]) {
-        if (!global.loggedHistory) global.loggedHistory = {};
-        global.loggedHistory[telemetryKey] = Date.now();
+    // --- AUTHENTICATED TELEMETRY ---
+    const rdKey = req.query.rdKey;
+    if (videoId && userId && rdKey) {
+        const telemetryKey = `${userId}:${videoId}`;
+        if (!global.loggedHistory?.[telemetryKey]) {
+            try {
+                // Verify RD Key before updating stats/history
+                await axios.get('https://api.real-debrid.com/rest/1.0/user', {
+                    headers: { 'Authorization': `Bearer ${rdKey}` },
+                    timeout: 2000
+                });
 
-        console.log(`[Telemetry] Play logged for ${userId.substr(0, 6)} on ${videoId}`);
+                if (!global.loggedHistory) global.loggedHistory = {};
+                global.loggedHistory[telemetryKey] = Date.now();
 
-        // Log to history
-        userService.addWatchHistory(userId, {
-            videoId: videoId,
-            skip: { start: parseFloat(startStr), end: parseFloat(endStr) }
-        });
+                console.log(`[Telemetry] Play logged for ${userId.substr(0, 6)} on ${videoId}`);
 
-        // Register Vote
-        userService.updateUserStats(userId, {
-            votes: 1,
-            videoId: videoId
-        });
+                // Log to history
+                userService.addWatchHistory(userId, {
+                    videoId: videoId,
+                    skip: { start: parseFloat(startStr), end: parseFloat(endStr) }
+                });
 
-        // GC old history logs every hour
-        if (Object.keys(global.loggedHistory).length > 1000) {
-            const cutoff = Date.now() - 3600000;
-            for (const k in global.loggedHistory) {
-                if (global.loggedHistory[k] < cutoff) delete global.loggedHistory[k];
+                userService.updateUserStats(userId, {
+                    votes: 1,
+                    videoId: videoId
+                });
+            } catch (e) {
+                console.warn(`[Telemetry] Auth failed for ${userId.substr(0, 6)}: ${e.message}`);
+            }
+
+            // GC old history logs every hour
+            if (Object.keys(global.loggedHistory).length > 2000) {
+                const cutoff = Date.now() - 3600000;
+                for (const k in global.loggedHistory) {
+                    if (global.loggedHistory[k] < cutoff) delete global.loggedHistory[k];
+                }
             }
         }
     }
@@ -677,31 +754,7 @@ app.get('/hls/manifest.m3u8', async (req, res) => {
     }
 });
 
-// 6. Magic Subtitles Endpoints - Status Only
-// (Voter Tracks Removed - Pivoted to Implicit Voting)
-app.get('/sub/status/:videoId.vtt', (req, res) => {
-    const vid = req.params.videoId;
-    // We use getSegments from skip-service which returns all segments for this ID
-    const segments = getSegments(vid) || [];
-
-    let vtt = "WEBVTT\n\n";
-
-    if (segments.length === 0) {
-        vtt += `00:00:00.000 --> 00:00:05.000\nNo skip segments found.\n\n`;
-    } else {
-        segments.forEach(seg => {
-            const start = toVTTTime(seg.start);
-            const end = toVTTTime(seg.end);
-            const label = seg.category || 'Intro';
-            vtt += `${start} --> ${end}\n[${label}] ⏭️ Skipping...\n\n`;
-        });
-    }
-
-    res.set('Content-Type', 'text/vtt');
-    res.send(vtt);
-});
-
-// Voting Tracks: Side-effect endpoints
+// 7. Voting Tracks: Side-effect endpoints
 // Voting Actions Redirects
 app.get('/vote/:action/:videoId', (req, res) => {
     const { action, videoId } = req.params;

@@ -2,6 +2,7 @@ const fs = require('fs').promises;
 const path = require('path');
 const mongoService = require('./mongodb');
 const axios = require('axios');
+const catalogService = require('./catalog');
 
 const DATA_FILE = path.join(__dirname, '../data/skips.json');
 
@@ -74,6 +75,10 @@ async function saveSkips() {
 
 // --- Helpers ---
 
+function escapeRegex(string) {
+    return string.replace(/[/\-\\^$*+?.()|[\]{}]/g, '\\$&');
+}
+
 // Get all segments for a specific video ID
 async function getSegments(fullId) {
     await ensureInit();
@@ -86,8 +91,9 @@ async function getSegments(fullId) {
 
             // 2. Try Case-Insensitive Match (Regex)
             if (!doc) {
+                const escapedId = escapeRegex(cleanId);
                 doc = await skipsCollection.findOne({
-                    fullId: { $regex: `^${cleanId}$`, $options: 'i' }
+                    fullId: { $regex: `^${escapedId}$`, $options: 'i' }
                 });
             }
 
@@ -273,6 +279,8 @@ async function getSkipSegment(fullId) {
         // Find best intro
         const intro = segments.find(s => s.label === 'Intro' || s.label === 'OP');
         if (intro) {
+            // Also ensure it's in catalog as local source
+            catalogService.registerShow(fullId).catch(() => { });
             return { start: intro.start, end: intro.end };
         }
     }
@@ -293,6 +301,9 @@ async function getSkipSegment(fullId) {
                 addSkipSegment(fullId, aniSkip.start, aniSkip.end, 'Intro', 'aniskip')
                     .catch(e => console.error(`[SkipService] Failed to persist Aniskip segment: ${e.message}`));
 
+                // Register in catalog
+                catalogService.registerShow(fullId).catch(() => { });
+
                 return aniSkip;
             }
 
@@ -303,6 +314,9 @@ async function getSkipSegment(fullId) {
                 // Persist the segment
                 addSkipSegment(fullId, animeSkip.start, animeSkip.end, 'Intro', 'anime-skip')
                     .catch(e => console.error(`[SkipService] Failed to persist Anime-Skip segment: ${e.message}`));
+
+                // Register in catalog
+                catalogService.registerShow(fullId).catch(() => { });
 
                 return animeSkip;
             }
@@ -315,8 +329,18 @@ async function getSkipSegment(fullId) {
 // --- Write Operations (Crowdsourcing) ---
 
 async function addSkipSegment(fullId, start, end, label = "Intro", userId = "anonymous") {
+    // Input Validation
+    if (typeof start !== 'number' || typeof end !== 'number' || start < 0 || end <= start) {
+        throw new Error("Invalid start or end times");
+    }
+    if (end > 36000) { // Max 10 hours
+        throw new Error("Segment too long or beyond reasonable bounds");
+    }
+    const cleanLabel = String(label).substring(0, 50); // Limit label length
+    const cleanFullId = String(fullId).substring(0, 255);
+
     const newSegment = {
-        start, end, label,
+        start, end, label: cleanLabel,
         votes: 1,
         verified: false, // All new submissions start unverified
         source: userId === 'aniskip' ? 'aniskip' : 'user',
@@ -327,15 +351,21 @@ async function addSkipSegment(fullId, start, end, label = "Intro", userId = "ano
 
     if (useMongo) {
         await skipsCollection.updateOne(
-            { fullId },
+            { fullId: cleanFullId },
             { $push: { segments: newSegment } },
             { upsert: true }
         );
     } else {
-        if (!skipsData[fullId]) skipsData[fullId] = [];
-        skipsData[fullId].push(newSegment);
+        if (!skipsData[cleanFullId]) skipsData[cleanFullId] = [];
+        skipsData[cleanFullId].push(newSegment);
         await saveSkips();
     }
+
+    // Auto-register in catalog if it's a user submission (local)
+    if (userId !== 'aniskip' && userId !== 'anime-skip') {
+        catalogService.registerShow(cleanFullId).catch(() => { });
+    }
+
     return newSegment;
 }
 
